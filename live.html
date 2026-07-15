@@ -21,6 +21,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GesTest — Live</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   :root {
     --sfondo: #0b1220;
@@ -195,7 +196,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 3</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 4</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -203,6 +204,11 @@
 <p class="riga-info">Quadro dal vivo della sessione. Non collegata da admin/quiz/index, solo per uso interno del responsabile.</p>
 
 <div class="pannello-test" id="pannello-test">Verifica del test attivo in corso...</div>
+
+<div class="pannello-test nascosto" id="nota-report-pronto" style="border-color: var(--verde); display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+  <span>📊 Report dell'ultimo turno appena chiuso, pronto per il download.</span>
+  <button id="btn-scarica-istantanea-turno">Scarica report dell'ultimo turno</button>
+</div>
 
 <div class="griglia-statistiche">
   <div class="statistica">
@@ -451,12 +457,16 @@ function renderizzaPannelloTest() {
       '<button id="btn-pausa" class="secondario" ' + (!avviato || inPausa ? 'disabled' : '') + '>⏸ Pausa</button>' +
       '<button id="btn-riprendi" class="oro" ' + (!avviato || !inPausa ? 'disabled' : '') + '>▶ Riprendi</button>' +
       '<button id="btn-termina" class="pericolo" ' + (!avviato ? 'disabled' : '') + '>⏹ Termina manualmente</button>' +
+      '<button id="btn-report" class="secondario">📊 Scarica report sessione</button>' +
     '</div>';
 
   document.getElementById("btn-avvia").addEventListener("click", avviaTest);
   document.getElementById("btn-pausa").addEventListener("click", pausaTest);
   document.getElementById("btn-riprendi").addEventListener("click", riprendiTest);
   document.getElementById("btn-termina").addEventListener("click", terminaTest);
+  document.getElementById("btn-report").addEventListener("click", () => {
+    generaEScaricaReportSessione().catch(e => alert("Errore nella generazione del report: " + e.message));
+  });
 }
 
 // ============================================================
@@ -503,12 +513,42 @@ async function azzeraTurnoFirestore(idTest) {
     await batch.commit();
   }
 }
+function calcolaSecchiAttuali() {
+  const secchi = { consegnato: [], svolgimento: [], attesa: [], abbandonato: [], mancante: [] };
+  STUDENTI.forEach(nomeCompleto => {
+    secchi[classificaAllievo(nomeCompleto)].push(nomeCompleto);
+  });
+  Object.values(secchi).forEach(elenco => elenco.sort((a, b) => a.localeCompare(b, "it")));
+  return secchi;
+}
+
+let ultimaIstantaneaTurno = null;
+
 function terminaTest() {
   if (!ID_TEST) return;
   if (!confirm("Terminare il turno? Chi sta ancora rispondendo verrà inviato automaticamente. Al termine la sala d'attesa si svuota e si potrà avviare un nuovo turno.")) return;
   const idAlMomento = ID_TEST;
+  const nomeAlMomento = datiTestCorrente.nome || idAlMomento;
+
   setDoc(riferimentoTest(idAlMomento), { terminatoTimestamp: Date.now() }, { merge: true })
-    .then(() => aspettaEAzzera(idAlMomento, 0))
+    .then(() => {
+      // Aspetto qualche istante che gli ultimi invii in corso
+      // arrivino, poi congelo la fotografia della sessione PRIMA
+      // che l'azzeramento cancelli le presenze: dopo il reset non
+      // saprei più distinguere chi aveva abbandonato da chi non era
+      // mai entrato.
+      setTimeout(() => {
+        ultimaIstantaneaTurno = {
+          idTest: idAlMomento,
+          nomeTest: nomeAlMomento,
+          orario: new Date(),
+          secchi: calcolaSecchiAttuali(),
+          risultati: new Map(risultatiCorrenti)
+        };
+        document.getElementById("nota-report-pronto").classList.remove("nascosto");
+        aspettaEAzzera(idAlMomento, 0);
+      }, 6000);
+    })
     .catch(e => alert("Errore: " + e.message));
 }
 function aspettaEAzzera(idTest, controlli) {
@@ -613,6 +653,109 @@ setInterval(() => {
   ricalcolaERendi();
   if (datiTestCorrente.avviatoTimestamp && !datiTestCorrente.terminatoTimestamp) renderizzaPannelloTest();
 }, 5000);
+
+// ============================================================
+// REPORT SESSIONE EXCEL — chi ha fatto cosa durante il turno:
+// consegnati, in svolgimento, in attesa, abbandonati, chi manca
+// ancora, e le uscite dal focus rilevate. Pensato per essere
+// riletto con calma dopo la sessione, non solo guardato a schermo.
+// ============================================================
+const COLORE_INTESTAZIONE_R = "FF1D3557";
+const COLORE_OK_R = "FFB6E3B6";
+const COLORE_ATTENZIONE_R = "FFFFE1B0";
+const COLORE_ROSSO_R = "FFF4B6B6";
+
+async function generaEScaricaReportSessione(istantaneaCongelata) {
+  const usaIstantanea = !!istantaneaCongelata;
+  const secchi = usaIstantanea ? istantaneaCongelata.secchi : calcolaSecchiAttuali();
+  const mappaRisultati = usaIstantanea ? istantaneaCongelata.risultati : risultatiCorrenti;
+  const nomeTestReport = usaIstantanea ? istantaneaCongelata.nomeTest : (datiTestCorrente.nome || ID_TEST);
+  const orarioReport = usaIstantanea ? istantaneaCongelata.orario : new Date();
+  const totaleAllievi = Object.values(secchi).reduce((a, e) => a + e.length, 0);
+
+  const conUsciteFocus = secchi.consegnato
+    .map(nome => ({ nome, dettaglio: mappaRisultati.get(normalizza(nome)) }))
+    .filter(v => v.dettaglio && v.dettaglio.usciteFocus > 0)
+    .sort((a, b) => b.dettaglio.usciteFocus - a.dettaglio.usciteFocus || a.nome.localeCompare(b.nome, "it"));
+
+  const cartella = new ExcelJS.Workbook();
+  const riepilogo = cartella.addWorksheet("Riepilogo");
+  riepilogo.columns = [{ width: 30 }, { width: 22 }];
+
+  function rigaTitolo(testo) {
+    const r = riepilogo.addRow([testo]);
+    r.font = { bold: true, size: 13, color: { argb: "FFFFFFFF" } };
+    r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE_R } };
+    riepilogo.mergeCells(r.number, 1, r.number, 2);
+    return r;
+  }
+  function rigaDato(etichetta, valore, colore) {
+    const r = riepilogo.addRow([etichetta, valore]);
+    r.getCell(1).font = { bold: true };
+    if (colore) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colore } };
+    return r;
+  }
+
+  rigaTitolo("GesTest — Report sessione");
+  riepilogo.addRow([]);
+  rigaDato("Test", nomeTestReport);
+  rigaDato("Report generato il", orarioReport.toLocaleString("it-IT"));
+  rigaDato("Tipo di report", usaIstantanea ? "Istantanea al termine del turno" : "Fotografia dal vivo, sessione ancora in corso");
+  riepilogo.addRow([]);
+
+  rigaTitolo("Andamento");
+  rigaDato("Allievi in elenco", totaleAllievi);
+  rigaDato("Consegnati", secchi.consegnato.length, COLORE_OK_R);
+  rigaDato("In svolgimento", secchi.svolgimento.length);
+  rigaDato("In attesa", secchi.attesa.length);
+  rigaDato("Abbandonati", secchi.abbandonato.length, secchi.abbandonato.length > 0 ? COLORE_ATTENZIONE_R : COLORE_OK_R);
+  rigaDato("Devono ancora entrare", secchi.mancante.length);
+  riepilogo.addRow([]);
+
+  rigaTitolo("Uscite dal focus");
+  rigaDato("Allievi con almeno un'uscita", conUsciteFocus.length, conUsciteFocus.length > 0 ? COLORE_ROSSO_R : COLORE_OK_R);
+  rigaDato("Su consegnati", secchi.consegnato.length ? Math.round(conUsciteFocus.length / secchi.consegnato.length * 1000) / 10 + " %" : "—");
+
+  const foglioAllievi = cartella.addWorksheet("Dettaglio allievi");
+  foglioAllievi.columns = [
+    { header: "Cognome e Nome", width: 34 }, { header: "Stato", width: 18 },
+    { header: "Uscite dal focus", width: 16 }, { header: "Tempo fuori focus", width: 18 }
+  ];
+  foglioAllievi.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  foglioAllievi.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE_R } }; });
+
+  const etichetteStato = { consegnato: "Consegnato", svolgimento: "In svolgimento", attesa: "In attesa", abbandonato: "Abbandonato", mancante: "Deve ancora entrare" };
+  const coloreStatoR = { consegnato: COLORE_OK_R, abbandonato: COLORE_ATTENZIONE_R };
+  const righeComplete = [];
+  Object.keys(secchi).forEach(chiaveStato => {
+    secchi[chiaveStato].forEach(nome => righeComplete.push({ nome, stato: chiaveStato }));
+  });
+  righeComplete.sort((a, b) => a.nome.localeCompare(b.nome, "it"));
+  righeComplete.forEach(({ nome, stato }) => {
+    const dettaglio = mappaRisultati.get(normalizza(nome));
+    const usciteFocus = dettaglio ? (dettaglio.usciteFocus || 0) : "";
+    const tempoFocus = dettaglio && dettaglio.tempoFuoriFocusMs ? formattaDurata(dettaglio.tempoFuoriFocusMs) : "";
+    const r = foglioAllievi.addRow([nome, etichetteStato[stato] || stato, usciteFocus, tempoFocus]);
+    if (coloreStatoR[stato]) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: coloreStatoR[stato] } };
+    if (usciteFocus > 0) { r.getCell(3).font = { bold: true, color: { argb: "FFB00020" } }; r.getCell(4).font = { bold: true, color: { argb: "FFB00020" } }; }
+  });
+  foglioAllievi.views = [{ state: "frozen", ySplit: 1 }];
+
+  const buffer = await cartella.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Report sessione - " + nomeTestReport + " - " + orarioReport.toLocaleString("it-IT").replace(/[/:]/g, "-") + ".xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+document.getElementById("btn-scarica-istantanea-turno").addEventListener("click", () => {
+  if (!ultimaIstantaneaTurno) return;
+  generaEScaricaReportSessione(ultimaIstantaneaTurno).catch(e => alert("Errore nella generazione del report: " + e.message));
+});
 </script>
 
 </body>
