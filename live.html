@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     LIVE — GesTest
+     Quadro dal vivo della sessione di test in corso: chi deve ancora
+     entrare, chi è in sala d'attesa, chi sta rispondendo, chi ha
+     abbandonato, chi ha consegnato. Pensata per il responsabile in
+     aula, su un dispositivo diverso dalla locandina, con anche i
+     comandi principali (avvia, pausa/riprendi, termina) a portata
+     di mano.
+
+     ORDINE FISSO: le sezioni stanno sempre nello stesso ordine,
+     consegnati, in svolgimento, in attesa, abbandonati, e in fondo
+     a tutto chi deve ancora entrare. Dentro ogni sezione i nomi sono
+     in ordine alfabetico stabile, così con sessioni multiple nello
+     stesso giorno chi deve ancora entrare resta sempre in fondo e la
+     lista non salta sotto gli occhi mentre gli allievi cambiano
+     stato.
+     ============================================================ -->
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GesTest — Live</title>
+<style>
+  :root {
+    --sfondo: #0b1220;
+    --pannello: #131c2e;
+    --bordo: #223049;
+    --testo: #e6edf5;
+    --testo-fioco: #8a97ab;
+    --blu: #4f8ef7;
+    --verde: #2ecc9a;
+    --oro: #d9a441;
+    --rosso: #e65566;
+    --grigio: #5a6c80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--sfondo);
+    color: var(--testo);
+    padding: 20px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  h1 { font-size: 1.25rem; margin: 0; }
+  .riga-info { color: var(--testo-fioco); font-size: 0.85rem; margin-bottom: 14px; }
+
+  .pannello-test {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+  }
+  .pannello-test .titolo-test { font-size: 1.05rem; font-weight: 700; color: var(--verde); }
+  .riga-stato-test {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .badge-stato {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+  .badge-non-avviato { background: rgba(90,108,128,0.2); color: var(--grigio); }
+  .badge-in-corso { background: rgba(217,164,65,0.18); color: var(--oro); }
+  .badge-in-pausa { background: rgba(79,142,247,0.18); color: var(--blu); }
+  .badge-terminato { background: rgba(230,85,102,0.18); color: var(--rosso); }
+  #timer-live {
+    font-size: 1.3rem;
+    font-weight: 700;
+    padding: 3px 12px;
+    border-radius: 8px;
+    color: white;
+  }
+
+  button {
+    background: var(--blu);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { background: #3a445a; cursor: not-allowed; }
+  button.secondario { background: #263351; }
+  button.pericolo { background: var(--rosso); }
+  button.oro { background: var(--oro); color: #1d1d1d; }
+
+  .riga-comandi {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+
+  .griglia-statistiche {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin: 16px 0;
+  }
+  .statistica {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .statistica .etichetta { font-size: 0.7rem; color: var(--testo-fioco); text-transform: uppercase; letter-spacing: 0.5px; }
+  .statistica .valore { font-size: 1.6rem; font-weight: 700; margin: 2px 0; }
+  .colore-verde { color: var(--verde); }
+  .colore-oro { color: var(--oro); }
+  .colore-rosso { color: var(--rosso); }
+  .colore-blu { color: var(--blu); }
+  .colore-grigio { color: var(--grigio); }
+
+  .sezione {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .intestazione-sezione {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .intestazione-sezione .titolo { font-weight: 700; font-size: 0.92rem; flex: 1; }
+  .intestazione-sezione .conteggio {
+    background: rgba(255,255,255,0.08);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+  .intestazione-sezione .freccia { color: var(--testo-fioco); font-size: 0.8rem; transition: transform 0.2s; }
+  .sezione.chiusa .freccia { transform: rotate(-90deg); }
+  .barra-laterale-verde { border-left: 4px solid var(--verde); }
+  .barra-laterale-blu { border-left: 4px solid var(--blu); }
+  .barra-laterale-oro { border-left: 4px solid var(--oro); }
+  .barra-laterale-rosso { border-left: 4px solid var(--rosso); }
+  .barra-laterale-grigio { border-left: 4px solid var(--grigio); }
+
+  .corpo-sezione {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 2px 14px;
+    padding: 4px 16px 14px;
+    font-size: 0.86rem;
+  }
+  .sezione.chiusa .corpo-sezione { display: none; }
+  .nome-voce {
+    padding: 3px 0;
+    color: var(--testo);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sezione-vuota { color: var(--testo-fioco); font-size: 0.85rem; padding: 4px 16px 14px; }
+
+  .nascosto { display: none !important; }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 1</div>
+
+<header>
+  <h1>📋 GesTest — Live</h1>
+</header>
+<p class="riga-info">Quadro dal vivo della sessione. Non collegata da admin/quiz/index, solo per uso interno del responsabile.</p>
+
+<div class="pannello-test" id="pannello-test">Verifica del test attivo in corso...</div>
+
+<div class="griglia-statistiche">
+  <div class="statistica">
+    <div class="etichetta">Allievi in elenco</div>
+    <div class="valore" id="stat-totale">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Consegnati</div>
+    <div class="valore colore-verde" id="stat-consegnati">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">In svolgimento</div>
+    <div class="valore colore-blu" id="stat-svolgimento">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">In attesa</div>
+    <div class="valore colore-oro" id="stat-attesa">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Abbandonati</div>
+    <div class="valore colore-rosso" id="stat-abbandonati">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Devono ancora entrare</div>
+    <div class="valore colore-grigio" id="stat-mancanti">0</div>
+  </div>
+</div>
+
+<div class="sezione barra-laterale-verde" id="sezione-consegnati">
+  <div class="intestazione-sezione" data-toggle="sezione-consegnati">
+    <span class="titolo">✅ Consegnato</span>
+    <span class="conteggio" id="conteggio-consegnati">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-consegnati"></div>
+</div>
+
+<div class="sezione barra-laterale-blu" id="sezione-svolgimento">
+  <div class="intestazione-sezione" data-toggle="sezione-svolgimento">
+    <span class="titolo">✍️ In svolgimento</span>
+    <span class="conteggio" id="conteggio-svolgimento">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-svolgimento"></div>
+</div>
+
+<div class="sezione barra-laterale-oro" id="sezione-attesa">
+  <div class="intestazione-sezione" data-toggle="sezione-attesa">
+    <span class="titolo">⏳ In attesa</span>
+    <span class="conteggio" id="conteggio-attesa">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-attesa"></div>
+</div>
+
+<div class="sezione barra-laterale-rosso" id="sezione-abbandonati">
+  <div class="intestazione-sezione" data-toggle="sezione-abbandonati">
+    <span class="titolo">🚪 Abbandonato</span>
+    <span class="conteggio" id="conteggio-abbandonati">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-abbandonati"></div>
+</div>
+
+<div class="sezione barra-laterale-grigio chiusa" id="sezione-mancanti">
+  <div class="intestazione-sezione" data-toggle="sezione-mancanti">
+    <span class="titolo">💤 Deve ancora entrare (sessione successiva)</span>
+    <span class="conteggio" id="conteggio-mancanti">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-mancanti"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc, onSnapshot,
+  collection, getDocs, query, where, writeBatch, increment
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAZaljofnVGilyzRMVjqtTuq7zlFGoJUMQ",
+  authDomain: "gestest-1d7a3.firebaseapp.com",
+  projectId: "gestest-1d7a3",
+  storageBucket: "gestest-1d7a3.firebasestorage.app",
+  messagingSenderId: "653566650662",
+  appId: "1:653566650662:web:4c8eff3675d7dbf18df9e7"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+
+function riferimentoTest(idTest) { return doc(db, "test", idTest); }
+function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
+function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
+function riferimentoStatoAttivo() { return doc(db, "stato", "attivo"); }
+function normalizza(testo) { return (testo || "").toString().trim().toLowerCase(); }
+
+const SOGLIA_CONNESSIONE_MS = 70000;
+
+// ============================================================
+// SEZIONI RICHIUDIBILI
+// ============================================================
+document.querySelectorAll("[data-toggle]").forEach(el => {
+  el.addEventListener("click", () => {
+    document.getElementById(el.dataset.toggle).classList.toggle("chiusa");
+  });
+});
+
+// ============================================================
+// TROVARE IL TEST ATTIVO E TENERLO AGGIORNATO
+// ============================================================
+let ID_TEST = "";
+let annullaOsservatoreTest = null;
+let annullaOsservatorePresenze = null;
+let annullaOsservatoreRisultati = null;
+let generazione = 0;
+
+let STUDENTI = [];
+let datiTestCorrente = {};
+let presenzeCorrenti = new Map(); // nome -> {stato, ultimoAggiornamento}
+let risultatiCorrenti = new Set(); // nomi con risultato non annullato
+
+onSnapshot(riferimentoStatoAttivo(), (istantanea) => {
+  const idAttivo = istantanea.exists() ? istantanea.data().idTest : null;
+  if (idAttivo === ID_TEST) return;
+  collegaTest(idAttivo);
+});
+
+function collegaTest(idTest) {
+  generazione++;
+  const generazioneCorrente = generazione;
+  if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+  if (annullaOsservatorePresenze) { annullaOsservatorePresenze(); annullaOsservatorePresenze = null; }
+  if (annullaOsservatoreRisultati) { annullaOsservatoreRisultati(); annullaOsservatoreRisultati = null; }
+  ID_TEST = idTest || "";
+  presenzeCorrenti = new Map();
+  risultatiCorrenti = new Set();
+
+  if (!idTest) {
+    document.getElementById("pannello-test").innerHTML = "⚠️ Nessun test risulta attivo in questo momento.";
+    STUDENTI = [];
+    datiTestCorrente = {};
+    ricalcolaERendi();
+    return;
+  }
+
+  annullaOsservatoreTest = onSnapshot(riferimentoTest(idTest), (istantanea) => {
+    if (generazioneCorrente !== generazione) return;
+    if (!istantanea.exists() || istantanea.data().attivo !== true) {
+      document.getElementById("pannello-test").innerHTML = "⚠️ Il test collegato non risulta più attivo.";
+      return;
+    }
+    datiTestCorrente = istantanea.data();
+    STUDENTI = datiTestCorrente.studenti || [];
+    renderizzaPannelloTest();
+    ricalcolaERendi();
+  });
+
+  annullaOsservatorePresenze = onSnapshot(riferimentoPresenze(idTest), (istantanea) => {
+    if (generazioneCorrente !== generazione) return;
+    presenzeCorrenti = new Map();
+    istantanea.forEach(d => presenzeCorrenti.set(normalizza(d.data().nome), d.data()));
+    ricalcolaERendi();
+  });
+
+  annullaOsservatoreRisultati = onSnapshot(query(riferimentoRisultati(idTest), where("annullato", "==", false)), (istantanea) => {
+    if (generazioneCorrente !== generazione) return;
+    risultatiCorrenti = new Set();
+    istantanea.forEach(d => risultatiCorrenti.add(normalizza(d.data().nome)));
+    ricalcolaERendi();
+  });
+}
+
+// ============================================================
+// PANNELLO STATO TEST + COMANDI
+// ============================================================
+function calcolaSecondiRimasti(dati) {
+  if (!dati || !dati.avviatoTimestamp || !dati.durataMinuti) return null;
+  const ora = Date.now();
+  const pausaInCorsoMs = dati.pausaTimestamp ? (ora - Number(dati.pausaTimestamp)) : 0;
+  const msTrascorsiEffettivi = (ora - Number(dati.avviatoTimestamp)) - Number(dati.totalePausaMs || 0) - pausaInCorsoMs;
+  return Math.max(dati.durataMinuti * 60 - Math.floor(msTrascorsiEffettivi / 1000), 0);
+}
+function esadecimaleARgb(e) { const p = e.replace("#", ""); return { r: parseInt(p.substring(0,2),16), g: parseInt(p.substring(2,4),16), b: parseInt(p.substring(4,6),16) }; }
+function interpolaColore(c1, c2, t) {
+  const a = esadecimaleARgb(c1), b = esadecimaleARgb(c2);
+  return "rgb(" + Math.round(a.r+(b.r-a.r)*t) + "," + Math.round(a.g+(b.g-a.g)*t) + "," + Math.round(a.b+(b.b-a.b)*t) + ")";
+}
+function coloreTimer(frazione) {
+  if (frazione <= 0.10) return "#e65566";
+  if (frazione <= 0.5) return interpolaColore("#d9a441", "#e65566", (0.5 - frazione) / 0.4);
+  return interpolaColore("#2ecc9a", "#d9a441", Math.min((1 - frazione) / 0.5, 1));
+}
+
+function renderizzaPannelloTest() {
+  const dati = datiTestCorrente;
+  const pannello = document.getElementById("pannello-test");
+  const terminato = !!dati.terminatoTimestamp;
+  const avviato = !!dati.avviatoTimestamp && !terminato;
+  const inPausa = !!dati.pausaTimestamp;
+
+  let badge = '<span class="badge-stato badge-non-avviato">Non avviato</span>';
+  if (terminato) badge = '<span class="badge-stato badge-terminato">Terminato, in chiusura turno</span>';
+  else if (avviato && inPausa) badge = '<span class="badge-stato badge-in-pausa">In pausa</span>';
+  else if (avviato) badge = '<span class="badge-stato badge-in-corso">In corso</span>';
+
+  let timerHtml = "";
+  if (avviato && dati.durataMinuti > 0) {
+    const secondi = calcolaSecondiRimasti({ ...dati, pausaTimestamp: inPausa ? dati.pausaTimestamp : null }) ??
+      (typeof dati.secondiRimastiAllaPausa === "number" ? dati.secondiRimastiAllaPausa : null);
+    if (secondi !== null) {
+      const m = Math.floor(secondi/60), s = secondi%60;
+      const frazione = secondi / (dati.durataMinuti*60);
+      timerHtml = '<span id="timer-live" style="background-color:' + coloreTimer(frazione) + ';">' + String(m).padStart(2,"0")+":"+String(s).padStart(2,"0") + '</span>';
+    }
+  }
+
+  pannello.innerHTML =
+    '<div class="titolo-test">' + (dati.nome || ID_TEST) + '</div>' +
+    '<div class="riga-stato-test">' + badge + timerHtml +
+      '<span style="color:var(--testo-fioco); font-size:0.85rem;">' + (STUDENTI.length) + ' allievi in elenco — ' +
+      (dati.durataMinuti > 0 ? dati.durataMinuti + ' minuti' : 'nessun limite di tempo') + '</span>' +
+    '</div>' +
+    '<div class="riga-comandi">' +
+      '<button id="btn-avvia" ' + (avviato || terminato ? 'disabled' : '') + '>▶ Inizio test</button>' +
+      '<button id="btn-pausa" class="secondario" ' + (!avviato || inPausa ? 'disabled' : '') + '>⏸ Pausa</button>' +
+      '<button id="btn-riprendi" class="oro" ' + (!avviato || !inPausa ? 'disabled' : '') + '>▶ Riprendi</button>' +
+      '<button id="btn-termina" class="pericolo" ' + (!avviato ? 'disabled' : '') + '>⏹ Termina manualmente</button>' +
+    '</div>';
+
+  document.getElementById("btn-avvia").addEventListener("click", avviaTest);
+  document.getElementById("btn-pausa").addEventListener("click", pausaTest);
+  document.getElementById("btn-riprendi").addEventListener("click", riprendiTest);
+  document.getElementById("btn-termina").addEventListener("click", terminaTest);
+}
+
+// ============================================================
+// COMANDI — scritture pubbliche sui soli campi di stato, permesse
+// dalle regole Firestore esattamente come per la locandina, nessun
+// login richiesto.
+// ============================================================
+function avviaTest() {
+  if (!ID_TEST) return;
+  if (!confirm("Avviare il test per tutti gli allievi attualmente in attesa?")) return;
+  setDoc(riferimentoTest(ID_TEST), { avviatoTimestamp: Date.now() }, { merge: true }).catch(e => alert("Errore: " + e.message));
+}
+function pausaTest() {
+  if (!ID_TEST) return;
+  if (!confirm("Mettere in pausa il test per tutti?")) return;
+  const secondiRimastiAllaPausa = calcolaSecondiRimasti(datiTestCorrente);
+  setDoc(riferimentoTest(ID_TEST), { pausaTimestamp: Date.now(), secondiRimastiAllaPausa }, { merge: true }).catch(e => alert("Errore: " + e.message));
+}
+function riprendiTest() {
+  if (!ID_TEST) return;
+  const nuovoTotalePausaMs = Number(datiTestCorrente.totalePausaMs || 0) + (datiTestCorrente.pausaTimestamp ? (Date.now() - Number(datiTestCorrente.pausaTimestamp)) : 0);
+  setDoc(riferimentoTest(ID_TEST), { pausaTimestamp: null, totalePausaMs: nuovoTotalePausaMs }, { merge: true }).catch(e => alert("Errore: " + e.message));
+}
+async function contaInSvolgimentoFirestore(idTest) {
+  const istantanea = await getDocs(riferimentoPresenze(idTest));
+  const ora = Date.now();
+  let n = 0;
+  istantanea.forEach(d => {
+    const dati = d.data();
+    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+    if (fresco && dati.stato === "in_corso") n++;
+  });
+  return n;
+}
+async function azzeraTurnoFirestore(idTest) {
+  await setDoc(riferimentoTest(idTest), {
+    avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
+    totalePausaMs: 0, secondiRimastiAllaPausa: null, azzeramenti: increment(1)
+  }, { merge: true });
+  const istantanea = await getDocs(riferimentoPresenze(idTest));
+  if (!istantanea.empty) {
+    const batch = writeBatch(db);
+    istantanea.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+function terminaTest() {
+  if (!ID_TEST) return;
+  if (!confirm("Terminare il turno? Chi sta ancora rispondendo verrà inviato automaticamente. Al termine la sala d'attesa si svuota e si potrà avviare un nuovo turno.")) return;
+  const idAlMomento = ID_TEST;
+  setDoc(riferimentoTest(idAlMomento), { terminatoTimestamp: Date.now() }, { merge: true })
+    .then(() => aspettaEAzzera(idAlMomento, 0))
+    .catch(e => alert("Errore: " + e.message));
+}
+function aspettaEAzzera(idTest, controlli) {
+  const massimoControlli = 36;
+  contaInSvolgimentoFirestore(idTest).then(n => {
+    if (n > 0 && controlli < massimoControlli) setTimeout(() => aspettaEAzzera(idTest, controlli + 1), 5000);
+    else azzeraTurnoFirestore(idTest).catch(() => {});
+  }).catch(() => {
+    if (controlli < massimoControlli) setTimeout(() => aspettaEAzzera(idTest, controlli + 1), 5000);
+    else azzeraTurnoFirestore(idTest).catch(() => {});
+  });
+}
+
+// ============================================================
+// CLASSIFICAZIONE E RENDER DELLE LISTE
+// ============================================================
+function classificaAllievo(nomeCompleto) {
+  const chiave = normalizza(nomeCompleto);
+  if (risultatiCorrenti.has(chiave)) return "consegnato";
+  const presenza = presenzeCorrenti.get(chiave);
+  if (!presenza) return "mancante";
+  const fresco = presenza.ultimoAggiornamento && (Date.now() - Number(presenza.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+  if (!fresco) return "abbandonato";
+  if (presenza.stato === "in_corso") return "svolgimento";
+  return "attesa"; // include anche "bloccato": in pratica un caso raro e transitorio
+}
+
+function ricalcolaERendi() {
+  const secchi = { consegnato: [], svolgimento: [], attesa: [], abbandonato: [], mancante: [] };
+  STUDENTI.forEach(nomeCompleto => {
+    secchi[classificaAllievo(nomeCompleto)].push(nomeCompleto);
+  });
+  Object.values(secchi).forEach(elenco => elenco.sort((a, b) => a.localeCompare(b, "it")));
+
+  document.getElementById("stat-totale").textContent = STUDENTI.length;
+  document.getElementById("stat-consegnati").textContent = secchi.consegnato.length;
+  document.getElementById("stat-svolgimento").textContent = secchi.svolgimento.length;
+  document.getElementById("stat-attesa").textContent = secchi.attesa.length;
+  document.getElementById("stat-abbandonati").textContent = secchi.abbandonato.length;
+  document.getElementById("stat-mancanti").textContent = secchi.mancante.length;
+
+  popolaSezione("consegnati", secchi.consegnato);
+  popolaSezione("svolgimento", secchi.svolgimento);
+  popolaSezione("attesa", secchi.attesa);
+  popolaSezione("abbandonati", secchi.abbandonato);
+  popolaSezione("mancanti", secchi.mancante);
+}
+
+function popolaSezione(idBase, elenco) {
+  document.getElementById("conteggio-" + idBase).textContent = elenco.length;
+  const corpo = document.getElementById("corpo-" + idBase);
+  if (elenco.length === 0) {
+    corpo.innerHTML = '<div class="sezione-vuota">Nessuno.</div>';
+    return;
+  }
+  corpo.innerHTML = elenco.map(nome => '<div class="nome-voce">' + nome.replace(/</g, "&lt;") + '</div>').join("");
+}
+
+// La freschezza delle presenze dipende dal tempo che passa, non solo
+// dagli aggiornamenti Firestore: ricalcolo anche a intervalli fissi,
+// così un allievo che smette di rispondere passa da "in attesa/in
+// svolgimento" ad "abbandonato" anche senza nessuna nuova scrittura,
+// e il timer resta aggiornato.
+setInterval(() => {
+  ricalcolaERendi();
+  if (datiTestCorrente.avviatoTimestamp && !datiTestCorrente.terminatoTimestamp) renderizzaPannelloTest();
+}, 5000);
+</script>
+
+</body>
+</html>

@@ -228,6 +228,8 @@
 </head>
 <body>
 
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 3</div>
+
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
   <span class="badge-pericolo">SOLO PER TEST</span>
@@ -237,9 +239,7 @@
 </header>
 <p class="riga-info">Progetto Firebase: gestest-1d7a3</p>
 
-<div class="avviso">
-  <strong>Prima di avviare:</strong> il simulatore ora usa i nomi VERI dell'elenco allievi del test attivo (uno per bot, senza ripetizioni). Questo significa che, sul test attivo in questo momento, quegli allievi risulteranno "già completato" per davvero, esattamente come se lo avessero fatto sul serio. Va benissimo per un collaudo, ma non lanciarlo su un test che stai per far svolgere davvero: crea o duplica un test apposta per il collaudo, fai partire la simulazione, e quando hai finito duplica di nuovo il test dal pannello admin per ripartire pulito con lo stesso elenco e le stesse domande, senza risultati né presenze residue.
-</div>
+
 
 <div class="pannello-test" id="pannello-test">Verifica del test attivo in corso...</div>
 
@@ -726,9 +726,23 @@ document.getElementById("btn-ferma").addEventListener("click", async () => {
   timerBot.forEach(id => clearTimeout(id));
   timerBot = [];
   if (annullaOsservatoreAvvio) { annullaOsservatoreAvvio(); annullaOsservatoreAvvio = null; }
+  testAvviatoAdesso = false;
+  botInAttesaDiAvvio.clear();
+
+  // Azzero i contatori visivi: bot avviati, RTT medio, errori. La
+  // lista "nomi usati nell'ultima corsa" NON si tocca qui, resta
+  // disponibile per "Reset risultati simulazione" anche a bot
+  // fermati, altrimenti si perderebbe il riferimento a cosa pulire.
+  botAttivi = new Map();
+  rttCampioni = [];
+  numeroBotRichiesti = 0;
+  numeroBotConnessi = 0;
+  numeroErrori = 0;
+  aggiornaInterfaccia();
+
   document.getElementById("btn-avvia").disabled = false;
   document.getElementById("btn-ferma").disabled = true;
-  log("Simulazione fermata. Pulizia delle presenze dei bot in corso...");
+  log("Simulazione fermata, contatori azzerati. Pulizia delle presenze dei bot in corso...");
   await pulisciPresenzeBot();
   log("Pulizia completata.", "ok");
 });
