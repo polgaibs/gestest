@@ -27,6 +27,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GesTest — Simulatore di carico</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   :root {
     --sfondo: #0b1220;
@@ -228,7 +229,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 4</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 5</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -262,6 +263,7 @@
   <button id="btn-avvia">▶ Avvia simulazione</button>
   <button class="secondario" id="btn-ferma" disabled>■ Ferma e pulisci</button>
   <button class="secondario" id="btn-reset-presenze">↺ Reset presenze bot</button>
+  <button class="secondario" id="btn-scarica-report">📊 Scarica report Excel</button>
   <button class="pericolo" id="btn-reset-risultati" disabled title="Serve l'accesso Google — cancella solo i risultati dell'ultima simulazione">🗑 Reset risultati simulazione</button>
   <button class="secondario" id="btn-ricarica-test">⟳ Ricarica test attivo</button>
 </div>
@@ -461,6 +463,16 @@ let numeroBotConnessi = 0;
 let numeroErrori = 0;
 let nomiUsatiUltimaCorsa = new Set();
 
+// Dati aggiuntivi tenuti solo per il report finale, non per la
+// visualizzazione dal vivo: RTT di ogni singola scrittura (non
+// limitato agli ultimi 200 come rttCampioni, che serve solo alla
+// media mostrata a schermo), orario di inizio/fine corsa, ed elenco
+// degli errori con il motivo.
+let tuttiRttCorsa = [];
+let orarioInizioCorsa = null;
+let orarioFineCorsa = null;
+let elencoErroriCorsa = [];
+
 function mischia(array) {
   const copia = [...array];
   for (let i = copia.length - 1; i > 0; i--) {
@@ -473,6 +485,7 @@ function mischia(array) {
 function registraRtt(ms) {
   rttCampioni.push(ms);
   if (rttCampioni.length > 200) rttCampioni.shift();
+  tuttiRttCorsa.push(ms);
 }
 
 function scriviConTempo(promessaScrittura) {
@@ -538,6 +551,25 @@ function aggiornaInterfaccia() {
   lista.innerHTML = righeHtml.join("");
 }
 let intervalloRefreshUI = setInterval(aggiornaInterfaccia, 500);
+let reportGiaScaricatoPerQuestaCorsa = false;
+
+// Se tutti i bot arrivano a uno stato finale da soli (nessuno più
+// "connessione"/"attesa"/"in svolgimento"), la corsa è di fatto
+// conclusa anche senza premere "Ferma": scarico il report una sola
+// volta in automatico, così non c'è bisogno di controllare a vista
+// quando finisce.
+setInterval(() => {
+  if (!simulazioneInCorso || numeroBotRichiesti === 0 || reportGiaScaricatoPerQuestaCorsa) return;
+  const valori = Array.from(botAttivi.values());
+  if (valori.length < numeroBotRichiesti) return; // non tutti i bot sono ancora nemmeno partiti
+  const finiti = valori.filter(b => ["consegnato", "abbandonato", "errore"].includes(b.stato)).length;
+  if (finiti === numeroBotRichiesti) {
+    reportGiaScaricatoPerQuestaCorsa = true;
+    orarioFineCorsa = new Date();
+    log("Tutti i bot hanno raggiunto uno stato finale: corsa conclusa, scarico il report.");
+    generaEScaricaReport().catch(e => log("Errore nella generazione del report: " + e.message, "errore"));
+  }
+}, 3000);
 
 // ============================================================
 // CICLO DI VITA DI UN SINGOLO BOT
@@ -571,6 +603,7 @@ async function eseguiBot(nomeBot, percentualeAbbandono) {
     }));
   } catch (e) {
     numeroErrori++;
+    elencoErroriCorsa.push({ nomeBot, fase: "presenza", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
     botAttivi.set(nomeBot, { stato: "errore" });
     log(nomeBot + ": errore scrivendo la presenza — " + e.message, "errore");
     return;
@@ -659,6 +692,7 @@ function procediConRisposta(nomeBot, pingId) {
       clearInterval(pingId);
     } catch (e) {
       numeroErrori++;
+      elencoErroriCorsa.push({ nomeBot, fase: "risultato", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
       botAttivi.set(nomeBot, { stato: "errore" });
       log(nomeBot + ": errore inviando il risultato — " + (e.message || e), "errore");
     }
@@ -725,6 +759,11 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
   numeroErrori = 0;
   botInAttesaDiAvvio.clear();
   nomiUsatiUltimaCorsa = new Set(nomiMischiati);
+  tuttiRttCorsa = [];
+  elencoErroriCorsa = [];
+  orarioInizioCorsa = new Date();
+  orarioFineCorsa = null;
+  reportGiaScaricatoPerQuestaCorsa = false;
 
   document.getElementById("btn-avvia").disabled = true;
   document.getElementById("btn-ferma").disabled = false;
@@ -737,6 +776,132 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
   });
 });
 
+// ============================================================
+// REPORT TECNICO EXCEL — tenuta del sistema durante la corsa:
+// quanti bot sono partiti, quanti sono arrivati a consegnare, RTT
+// delle scritture, errori con dettaglio. Pensato per essere
+// riletto con calma dopo un collaudo, non solo guardato a schermo
+// mentre gira.
+// ============================================================
+const COLORE_INTESTAZIONE = "FF1D3557";
+const COLORE_OK = "FFB6E3B6";
+const COLORE_ATTENZIONE = "FFFFE1B0";
+const COLORE_ERRORE = "FFF4B6B6";
+
+async function generaEScaricaReport() {
+  if (!orarioInizioCorsa) {
+    log("Nessuna corsa registrata da mettere nel report.", "errore");
+    return;
+  }
+  const fineEffettiva = orarioFineCorsa || new Date();
+  const valori = Array.from(botAttivi.values());
+  const consegnati = valori.filter(b => b.stato === "consegnato").length;
+  const abbandonati = valori.filter(b => b.stato === "abbandonato").length;
+  const errori = valori.filter(b => b.stato === "errore").length;
+  const inCorsoAllaFine = valori.filter(b => b.stato === "attesa" || b.stato === "in_corso" || b.stato === "connessione").length;
+
+  const rttOrdinati = [...tuttiRttCorsa].sort((a, b) => a - b);
+  const rttMedio = rttOrdinati.length ? Math.round(rttOrdinati.reduce((a, b) => a + b, 0) / rttOrdinati.length) : null;
+  const rttMinimo = rttOrdinati.length ? rttOrdinati[0] : null;
+  const rttMassimo = rttOrdinati.length ? rttOrdinati[rttOrdinati.length - 1] : null;
+  const rttMediana = rttOrdinati.length ? rttOrdinati[Math.floor(rttOrdinati.length / 2)] : null;
+
+  const cartella = new ExcelJS.Workbook();
+
+  // ---- Foglio 1: Riepilogo ----
+  const riepilogo = cartella.addWorksheet("Riepilogo");
+  riepilogo.columns = [{ width: 34 }, { width: 22 }];
+
+  function rigaTitolo(testo) {
+    const r = riepilogo.addRow([testo]);
+    r.font = { bold: true, size: 13, color: { argb: "FFFFFFFF" } };
+    r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } };
+    riepilogo.mergeCells(r.number, 1, r.number, 2);
+    return r;
+  }
+  function rigaDato(etichetta, valore, colore) {
+    const r = riepilogo.addRow([etichetta, valore]);
+    r.getCell(1).font = { bold: true };
+    if (colore) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colore } };
+    return r;
+  }
+
+  rigaTitolo("GesTest — Report tecnico simulazione di carico");
+  riepilogo.addRow([]);
+  rigaDato("Test usato per il collaudo", NOME_TEST || ID_TEST);
+  rigaDato("ID test", ID_TEST);
+  rigaDato("Inizio corsa", orarioInizioCorsa.toLocaleString("it-IT"));
+  rigaDato("Fine corsa", fineEffettiva.toLocaleString("it-IT"));
+  rigaDato("Durata corsa", formattaDurataSecondi(Math.round((fineEffettiva - orarioInizioCorsa) / 1000)));
+  riepilogo.addRow([]);
+
+  rigaTitolo("Connessioni");
+  rigaDato("Bot richiesti", numeroBotRichiesti);
+  rigaDato("Bot avviati (connessi)", numeroBotConnessi);
+  rigaDato("Ancora in corso alla fine", inCorsoAllaFine, inCorsoAllaFine > 0 ? COLORE_ATTENZIONE : COLORE_OK);
+  riepilogo.addRow([]);
+
+  rigaTitolo("Esiti");
+  rigaDato("Consegnati", consegnati, COLORE_OK);
+  rigaDato("Abbandonati (simulati)", abbandonati);
+  rigaDato("Errori", errori, errori > 0 ? COLORE_ERRORE : COLORE_OK);
+  rigaDato("Percentuale di successo", numeroBotRichiesti ? Math.round((consegnati / numeroBotRichiesti) * 1000) / 10 + " %" : "—",
+    numeroBotRichiesti && (consegnati / numeroBotRichiesti) >= 0.95 ? COLORE_OK : COLORE_ATTENZIONE);
+  riepilogo.addRow([]);
+
+  rigaTitolo("Tempi di scrittura su Firestore (RTT)");
+  rigaDato("Scritture misurate", rttOrdinati.length);
+  rigaDato("RTT medio", rttMedio !== null ? rttMedio + " ms" : "—");
+  rigaDato("RTT mediano", rttMediana !== null ? rttMediana + " ms" : "—");
+  rigaDato("RTT minimo", rttMinimo !== null ? rttMinimo + " ms" : "—");
+  rigaDato("RTT massimo", rttMassimo !== null ? rttMassimo + " ms" : "—", (rttMassimo !== null && rttMassimo > 3000) ? COLORE_ATTENZIONE : null);
+
+  // ---- Foglio 2: Dettaglio bot ----
+  const dettaglio = cartella.addWorksheet("Dettaglio bot");
+  dettaglio.columns = [{ header: "Nome bot", width: 34 }, { header: "Stato finale", width: 18 }];
+  dettaglio.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  dettaglio.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } }; });
+  const etichetteStato = { connessione: "Connessione...", attesa: "In attesa", in_corso: "In svolgimento", consegnato: "Consegnato", abbandonato: "Abbandonato", errore: "Errore" };
+  const coloreStato = { consegnato: COLORE_OK, errore: COLORE_ERRORE, abbandonato: COLORE_ATTENZIONE };
+  Array.from(botAttivi.entries()).sort((a, b) => a[0].localeCompare(b[0], "it")).forEach(([nome, info]) => {
+    const r = dettaglio.addRow([nome, etichetteStato[info.stato] || info.stato]);
+    if (coloreStato[info.stato]) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: coloreStato[info.stato] } };
+  });
+  dettaglio.views = [{ state: "frozen", ySplit: 1 }];
+
+  // ---- Foglio 3: Errori (solo se ce ne sono) ----
+  if (elencoErroriCorsa.length > 0) {
+    const foglioErrori = cartella.addWorksheet("Errori");
+    foglioErrori.columns = [{ header: "Orario", width: 12 }, { header: "Bot", width: 30 }, { header: "Fase", width: 14 }, { header: "Messaggio", width: 60 }];
+    foglioErrori.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    foglioErrori.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } }; });
+    elencoErroriCorsa.forEach(e => {
+      const r = foglioErrori.addRow([e.orario, e.nomeBot, e.fase, e.messaggio]);
+      r.getCell(4).alignment = { wrapText: true };
+    });
+  }
+
+  const buffer = await cartella.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Report simulazione - " + (NOME_TEST || ID_TEST) + " - " + fineEffettiva.toLocaleDateString("it-IT").replace(/\//g, "-") + ".xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  log("Report Excel scaricato.", "ok");
+}
+
+function formattaDurataSecondi(secondiTotali) {
+  const m = Math.floor(secondiTotali / 60), s = secondiTotali % 60;
+  return m > 0 ? (m + " min " + s + " s") : (s + " s");
+}
+
+document.getElementById("btn-scarica-report").addEventListener("click", () => {
+  generaEScaricaReport().catch(e => log("Errore nella generazione del report: " + e.message, "errore"));
+});
+
 document.getElementById("btn-ferma").addEventListener("click", async () => {
   simulazioneInCorso = false;
   timerBot.forEach(id => clearTimeout(id));
@@ -744,6 +909,14 @@ document.getElementById("btn-ferma").addEventListener("click", async () => {
   if (annullaOsservatoreAvvio) { annullaOsservatoreAvvio(); annullaOsservatoreAvvio = null; }
   testAvviatoAdesso = false;
   botInAttesaDiAvvio.clear();
+  orarioFineCorsa = new Date();
+
+  // Il report va generato PRIMA di azzerare i contatori qui sotto,
+  // altrimenti scaricherebbe una corsa già vuota.
+  if (numeroBotRichiesti > 0 && !reportGiaScaricatoPerQuestaCorsa) {
+    reportGiaScaricatoPerQuestaCorsa = true;
+    try { await generaEScaricaReport(); } catch (e) { log("Errore nella generazione del report: " + e.message, "errore"); }
+  }
 
   // Azzero i contatori visivi: bot avviati, RTT medio, errori. La
   // lista "nomi usati nell'ultima corsa" NON si tocca qui, resta
