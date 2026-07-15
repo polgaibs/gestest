@@ -525,6 +525,14 @@ async function elencoTest() {
   const risultato = [];
   for (const documento of istantanea.docs) {
     const dati = documento.data();
+
+    // I documenti scritti dalla versione vecchia (foglio Google)
+    // contengono solo i campi di stato, mai "domande": sono residui
+    // di avvio/pausa/chiusura del turno, non test veri creati da
+    // questo pannello. Li salto, restano intoccati per non disturbare
+    // la versione vecchia che li usa ancora.
+    if (!Array.isArray(dati.domande)) continue;
+
     const istantaneaRisultati = await getDocs(
       query(riferimentoRisultati(documento.id), where("annullato", "==", false))
     );
