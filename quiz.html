@@ -472,6 +472,27 @@ const CHIAVE_SALVATAGGIO = "test_silp_stato";
 function mostraNessunTestAttivo() {
   document.getElementById("schermata-caricamento").classList.add("nascosto");
   document.getElementById("schermata-nessun-test").classList.remove("nascosto");
+  document.getElementById("schermata-id").classList.add("nascosto");
+  // Resto in ascolto: se l'admin attiva un test mentre questa pagina
+  // è già aperta su "nessun test attivo", non deve servire un
+  // ricaricamento manuale per accorgersene.
+  osservaPuntatoreAttivo();
+}
+
+let annullaOsservatorePuntatore = null;
+function osservaPuntatoreAttivo() {
+  if (annullaOsservatorePuntatore) return;
+  annullaOsservatorePuntatore = onSnapshot(doc(db, "stato", "attivo"), (istantanea) => {
+    const idAttivo = istantanea.exists() ? istantanea.data().idTest : null;
+    // Se non è cambiato nulla di concreto, o siamo già oltre la
+    // schermata di identificazione (test già in corso per questo
+    // allievo), non rifare nulla.
+    if (!idAttivo || ID_TEST) return;
+    if (annullaOsservatorePuntatore) { annullaOsservatorePuntatore(); annullaOsservatorePuntatore = null; }
+    document.getElementById("schermata-nessun-test").classList.add("nascosto");
+    document.getElementById("schermata-caricamento").classList.remove("nascosto");
+    caricaTestAttivo();
+  });
 }
 
 async function caricaTestAttivo() {
