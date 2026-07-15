@@ -309,7 +309,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 3</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 4</div>
 
 <div id="messaggio-globale"></div>
 
@@ -788,6 +788,13 @@ async function arricchisciConStatoLive(test) {
 const COLORE_CORRETTA = "FFB6E3B6";
 const COLORE_SBAGLIATA = "FFF4B6B6";
 
+function formattaDurataFuoriFocus(ms) {
+  if (!ms) return "";
+  const secondiTotali = Math.round(ms / 1000);
+  const m = Math.floor(secondiTotali / 60), s = secondiTotali % 60;
+  return m > 0 ? (m + "m " + String(s).padStart(2, "0") + "s") : (s + "s");
+}
+
 async function scaricaRisultatiExcel(idTest, nomeTest) {
   const istantanea = await getDocs(riferimentoRisultati(idTest));
   if (istantanea.empty) return { esito: "vuoto" };
@@ -803,7 +810,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
   const cartella = new ExcelJS.Workbook();
   const foglio = cartella.addWorksheet("Risultati");
 
-  const intestazione = ["Data invio", "Cognome e Nome", "Punteggio", "Su totale domande", "Scaduto per tempo"];
+  const intestazione = ["Data invio", "Cognome e Nome", "Punteggio", "Su totale domande", "Scaduto per tempo", "Uscite dal focus", "Tempo fuori focus"];
   for (let i = 0; i < numeroMassimoDomande; i++) {
     intestazione.push(righe.find(r => r.risposte && r.risposte[i]) ?.risposte[i].testo || ("Domanda " + (i + 1)));
   }
@@ -812,14 +819,22 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
   foglio.getRow(1).alignment = { wrapText: true, vertical: "top" };
 
   righe.forEach(r => {
-    const rigaValori = [r.timestamp || "", r.nome || "", r.punteggio, r.totaleDomande, r.scadutoPerTempo || "NO"];
+    const usciteFocus = r.usciteFocus || 0;
+    const rigaValori = [
+      r.timestamp || "", r.nome || "", r.punteggio, r.totaleDomande, r.scadutoPerTempo || "NO",
+      usciteFocus, formattaDurataFuoriFocus(r.tempoFuoriFocusMs || 0)
+    ];
     (r.risposte || []).forEach(risposta => {
       const testoRisposta = risposta.risposta || "(nessuna risposta)";
       rigaValori.push(risposta.corretta === "SI" ? testoRisposta + " (Corretto)" : testoRisposta + " (Errata)");
     });
     const rigaAggiunta = foglio.addRow(rigaValori);
+    if (usciteFocus > 0) {
+      rigaAggiunta.getCell(6).font = { bold: true, color: { argb: "FFB00020" } };
+      rigaAggiunta.getCell(7).font = { bold: true, color: { argb: "FFB00020" } };
+    }
     (r.risposte || []).forEach((risposta, indice) => {
-      const cella = rigaAggiunta.getCell(6 + indice);
+      const cella = rigaAggiunta.getCell(8 + indice);
       cella.fill = {
         type: "pattern", pattern: "solid",
         fgColor: { argb: risposta.corretta === "SI" ? COLORE_CORRETTA : COLORE_SBAGLIATA }

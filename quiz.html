@@ -236,7 +236,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 8</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 11</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -376,6 +376,13 @@
     <p>Puoi chiudere questa pagina.</p>
   </div>
 
+  <!-- SCHERMATA INTERROTTO PER SECONDA SCHEDA -->
+  <div class="scheda nascosto schermata-finale" id="schermata-interrotto-multi-scheda">
+    <h2 style="color: var(--rosso);">Test interrotto</h2>
+    <p>È stato aperto lo stesso test in un'altra scheda di questo browser. Per evitare risposte in conflitto, questa scheda ha inviato automaticamente le risposte date fino a questo momento.</p>
+    <p style="margin-top:16px;">Se hai bisogno di continuare, rivolgiti al responsabile in aula.</p>
+  </div>
+
 </div>
 
 <script type="module">
@@ -476,6 +483,89 @@ let timerInterval = null;
 let testInviato = false;
 
 const CHIAVE_SALVATAGGIO = "test_silp_stato";
+
+// ============================================================
+// SCHEDA UNICA: se lo stesso test viene aperto in una seconda
+// scheda dello stesso browser, questa (la prima) se ne accorge
+// tramite l'evento "storage", che il browser manda automaticamente
+// alle ALTRE schede quando una scrive in localStorage (mai alla
+// scheda che ha scritto lei stessa). Ogni scheda ha un proprio
+// identificativo casuale, non salvato altrove, solo per riconoscere
+// "sono stato io" o "è stata un'altra scheda".
+// ============================================================
+const CHIAVE_SCHEDA_ATTIVA = "test_silp_scheda_attiva";
+const idSchedaCorrente = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(36).slice(2)));
+let intervalloBattitoScheda = null;
+
+function reclamaSchedaAttiva() {
+  try {
+    localStorage.setItem(CHIAVE_SCHEDA_ATTIVA, JSON.stringify({
+      idScheda: idSchedaCorrente, idTest: ID_TEST, nome: nomeStudente, battito: Date.now()
+    }));
+  } catch (e) {}
+  if (!intervalloBattitoScheda) {
+    intervalloBattitoScheda = setInterval(() => {
+      try {
+        const attuale = JSON.parse(localStorage.getItem(CHIAVE_SCHEDA_ATTIVA) || "null");
+        if (attuale && attuale.idScheda === idSchedaCorrente) {
+          localStorage.setItem(CHIAVE_SCHEDA_ATTIVA, JSON.stringify({ ...attuale, battito: Date.now() }));
+        }
+      } catch (e) {}
+    }, 4000);
+  }
+}
+
+// L'evento "storage" arriva SOLO alle altre schede, mai a quella che
+// ha appena scritto: se qui arriva un cambiamento con un
+// identificativo di scheda diverso dal nostro, per lo stesso test, e
+// stiamo attivamente svolgendo il test su questa scheda, significa
+// che è stata aperta una seconda scheda per lo stesso tentativo.
+window.addEventListener("storage", (evento) => {
+  if (evento.key !== CHIAVE_SCHEDA_ATTIVA || !evento.newValue) return;
+  if (testInviato || !statoQuizAvviatoLocalmente) return;
+  let nuovo;
+  try { nuovo = JSON.parse(evento.newValue); } catch (e) { return; }
+  if (!nuovo || nuovo.idScheda === idSchedaCorrente || nuovo.idTest !== ID_TEST) return;
+  gestisciSchedaMultipla();
+});
+
+function gestisciSchedaMultipla() {
+  if (testInviato) return;
+  clearInterval(timerInterval);
+  clearInterval(intervalloBattitoScheda);
+  registraAvvisoClient(
+    "SCHEDA MULTIPLA",
+    "Rilevata apertura dello stesso test in un'altra scheda del browser: invio automatico delle risposte date fino a questo momento.",
+    0
+  );
+  inviaTest(false, "scheda_multipla");
+}
+
+// ============================================================
+// USCITE DAL FOCUS: se l'allievo cambia app, cambia scheda o
+// spegne lo schermo mentre sta rispondendo, il browser lo segnala
+// con l'evento "visibilitychange". Non blocchiamo né avvisiamo
+// l'allievo in tempo reale (rischierebbe di penalizzare chi riceve
+// semplicemente una telefonata), ma contiamo quante volte succede e
+// per quanto tempo complessivo, e lo salviamo insieme al risultato
+// perché il responsabile lo veda dopo, sia su live.html sia
+// nell'Excel esportato.
+// ============================================================
+let contatoreUsciteFocus = 0;
+let msFuoriFocusAccumulati = 0;
+let momentoUscitaFocus = null;
+
+document.addEventListener("visibilitychange", () => {
+  if (!statoQuizAvviatoLocalmente || testInviato) return;
+  if (document.hidden) {
+    momentoUscitaFocus = Date.now();
+  } else if (momentoUscitaFocus) {
+    msFuoriFocusAccumulati += Date.now() - momentoUscitaFocus;
+    contatoreUsciteFocus++;
+    momentoUscitaFocus = null;
+    salvaStato();
+  }
+});
 
 // ============================================================
 // CARICAMENTO DEL TEST ATTIVO
@@ -866,6 +956,7 @@ document.getElementById("btn-avvia").addEventListener("click", () => {
 
 function entraInSalaDAttesa() {
   fermaOsservatoreDisattivazionePrecoce();
+  reclamaSchedaAttiva();
   document.getElementById("schermata-istruzioni").classList.add("nascosto");
   document.getElementById("nome-allievo-attesa").textContent = nomeSenzaPerid(nomeStudente);
   document.getElementById("schermata-attesa").classList.remove("nascosto");
@@ -908,6 +999,7 @@ function bloccaTestPerDisattivazione() {
   clearInterval(pollingTestAttivoInterval);
   if (typeof timerInterval !== "undefined") clearInterval(timerInterval);
   if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+  clearInterval(intervalloBattitoScheda);
   cancellaSalvataggio();
 
   statoPresenzaAttuale = "bloccato";
@@ -1006,9 +1098,23 @@ function gestisciCambiamentoStatoTest(dati) {
   }
 }
 
-function avviaOppureRiprendi(secondiForzati) {
+// Calcola i secondi rimasti a partire dai dati del server (avvio,
+// pausa, tempo totale di pausa), la stessa identica logica usata
+// dalla locandina. È la fonte di verità: il tempo passato mentre un
+// allievo era scollegato non deve mai tornare indietro.
+function calcolaSecondiRimastiDaServer(dati) {
+  if (typeof dati.secondiRimastiAllaPausa === "number" && dati.pausaTimestamp) {
+    return dati.secondiRimastiAllaPausa;
+  }
+  const oraAttuale = Date.now();
+  const msTrascorsiEffettivi = (oraAttuale - Number(dati.avviatoTimestamp)) - Number(dati.totalePausaMs || 0);
+  return Math.max(DURATA_MINUTI * 60 - Math.floor(msTrascorsiEffettivi / 1000), 0);
+}
+
+async function avviaOppureRiprendi(secondiForzati) {
   fermaOsservatoreDisattivazionePrecoce();
   statoQuizAvviatoLocalmente = true;
+  reclamaSchedaAttiva();
 
   // Riparte sempre da qui, non solo dalla sala d'attesa: copre sia
   // l'avvio normale sia il rientro dopo un ricaricamento accidentale
@@ -1026,8 +1132,47 @@ function avviaOppureRiprendi(secondiForzati) {
     domandeMischiate = salvato.domandeMischiate;
     indiceCorrente = salvato.indiceCorrente;
     risposteDate = salvato.risposteDate;
-    secondiRimasti = secondiForzati !== undefined ? secondiForzati : salvato.secondiRimasti;
-    avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
+    contatoreUsciteFocus = salvato.contatoreUsciteFocus || 0;
+    msFuoriFocusAccumulati = salvato.msFuoriFocusAccumulati || 0;
+
+    if (secondiForzati !== undefined) {
+      // Chi chiama (la sala d'attesa che vede scattare l'avvio in
+      // diretta) ha già calcolato il valore giusto un istante fa: uso
+      // quello, non serve un'altra lettura.
+      secondiRimasti = secondiForzati;
+      avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
+    } else if (DURATA_MINUTI > 0) {
+      // Rientro dopo un ricaricamento: il valore salvato in locale
+      // risale a PRIMA dell'interruzione, quindi non tiene conto del
+      // tempo passato mentre l'allievo era scollegato. Lo scarto e
+      // rileggo lo stato vero dal server: il tempo perso resta perso,
+      // esattamente come per tutti gli altri.
+      try {
+        const istantanea = await getDoc(riferimentoTest());
+        const dati = istantanea.exists() ? istantanea.data() : {};
+        if (!istantanea.exists() || dati.attivo !== true) {
+          bloccaTestPerDisattivazione();
+          return;
+        }
+        if (dati.terminatoTimestamp) {
+          avviatoTimestampSessione = dati.avviatoTimestamp;
+          secondiRimasti = 0;
+        } else {
+          avviatoTimestampSessione = dati.avviatoTimestamp;
+          secondiRimasti = calcolaSecondiRimastiDaServer(dati);
+        }
+      } catch (e) {
+        // Senza rete non posso verificare: nel dubbio riparto dal
+        // valore salvato piuttosto che bloccare l'allievo, i controlli
+        // dell'osservatore in tempo reale correggeranno la situazione
+        // non appena la connessione torna.
+        secondiRimasti = salvato.secondiRimasti;
+        avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
+      }
+    } else {
+      secondiRimasti = salvato.secondiRimasti;
+      avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
+    }
   } else {
     domandeMischiate = mischia(DOMANDE).map(d => {
       const opzioniConIndice = d.opzioni.map((testo, i) => ({ testo, corretta: i === d.corretta }));
@@ -1075,7 +1220,9 @@ function salvaStato() {
     risposteDate,
     secondiRimasti,
     inviato: testInviato,
-    avviatoTimestamp: avviatoTimestampSessione
+    avviatoTimestamp: avviatoTimestampSessione,
+    contatoreUsciteFocus,
+    msFuoriFocusAccumulati
   };
   try {
     localStorage.setItem(CHIAVE_SALVATAGGIO, JSON.stringify(stato));
@@ -1231,7 +1378,7 @@ document.getElementById("btn-avanti").addEventListener("click", () => {
 // aggiornare un risultato, quindi viene rifiutato automaticamente,
 // niente lock manuale da gestire.
 // ============================================================
-function inviaTest(perScadenzaTempo) {
+function inviaTest(perScadenzaTempo, motivo) {
   if (testInviato) return;
   testInviato = true;
   clearInterval(timerInterval);
@@ -1253,6 +1400,16 @@ function inviaTest(perScadenzaTempo) {
     };
   });
 
+  // Se l'invio scatta mentre l'allievo è ancora "fuori" (per esempio
+  // il timer scade mentre ha un'altra app in primo piano), conto
+  // anche quell'ultima uscita, ancora in corso, invece di perderla.
+  let msFuoriFocusTotali = msFuoriFocusAccumulati;
+  let uscite = contatoreUsciteFocus;
+  if (momentoUscitaFocus) {
+    msFuoriFocusTotali += Date.now() - momentoUscitaFocus;
+    uscite++;
+  }
+
   const payloadBase = {
     nome: nomeStudente,
     timestamp: new Date().toLocaleString("it-IT"),
@@ -1260,13 +1417,24 @@ function inviaTest(perScadenzaTempo) {
     totaleDomande: domandeMischiate.length,
     scadutoPerTempo: perScadenzaTempo ? "SI" : "NO",
     risposte: risposte,
-    annullato: false
+    annullato: false,
+    usciteFocus: uscite,
+    tempoFuoriFocusMs: msFuoriFocusTotali
   };
 
-  provaInvio(payloadBase, 0);
+  provaInvio(payloadBase, 0, motivo);
 }
 
-function provaInvio(payloadBase, tentativo) {
+function mostraSchermataFinaleGiusta(motivo) {
+  document.getElementById("schermata-invio").classList.add("nascosto");
+  if (motivo === "scheda_multipla") {
+    document.getElementById("schermata-interrotto-multi-scheda").classList.remove("nascosto");
+  } else {
+    document.getElementById("schermata-fine").classList.remove("nascosto");
+  }
+}
+
+function provaInvio(payloadBase, tentativo, motivo) {
   if (tentativo > 0) {
     document.getElementById("messaggio-stato-invio").textContent =
       "Connessione debole, nuovo tentativo in corso (" + (tentativo + 1) + ")...";
@@ -1289,8 +1457,8 @@ function provaInvio(payloadBase, tentativo) {
       pingSospeso = true;
       if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
       if (pollingTestAttivoInterval) { clearInterval(pollingTestAttivoInterval); pollingTestAttivoInterval = null; }
-      document.getElementById("schermata-invio").classList.add("nascosto");
-      document.getElementById("schermata-fine").classList.remove("nascosto");
+      clearInterval(intervalloBattitoScheda);
+      mostraSchermataFinaleGiusta(motivo);
     })
     .catch((errore) => {
       // Se Firestore rifiuta la scrittura perché sta cercando di
@@ -1304,8 +1472,8 @@ function provaInvio(payloadBase, tentativo) {
         pingSospeso = true;
         if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
         if (pollingTestAttivoInterval) { clearInterval(pollingTestAttivoInterval); pollingTestAttivoInterval = null; }
-        document.getElementById("schermata-invio").classList.add("nascosto");
-        document.getElementById("schermata-fine").classList.remove("nascosto");
+        clearInterval(intervalloBattitoScheda);
+        mostraSchermataFinaleGiusta(motivo);
         return;
       }
 
@@ -1318,7 +1486,7 @@ function provaInvio(payloadBase, tentativo) {
       }
 
       const attesa = Math.min(5000 + tentativo * 3000, 30000) + Math.random() * 2000;
-      setTimeout(() => provaInvio(payloadBase, tentativo + 1), attesa);
+      setTimeout(() => provaInvio(payloadBase, tentativo + 1, motivo), attesa);
     });
 }
 

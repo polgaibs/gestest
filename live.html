@@ -177,13 +177,25 @@
     text-overflow: ellipsis;
   }
   .sezione-vuota { color: var(--testo-fioco); font-size: 0.85rem; padding: 4px 16px 14px; }
+  .badge-uscita-focus {
+    display: inline-block;
+    background: rgba(230,85,102,0.18);
+    color: var(--rosso);
+    border: 1px solid var(--rosso);
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-left: 8px;
+    white-space: nowrap;
+  }
 
   .nascosto { display: none !important; }
 </style>
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 1</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 2</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -216,6 +228,11 @@
   <div class="statistica">
     <div class="etichetta">Devono ancora entrare</div>
     <div class="valore colore-grigio" id="stat-mancanti">0</div>
+  </div>
+  <div class="statistica" style="border-color: var(--rosso);">
+    <div class="etichetta">⚠️ Uscite dal focus</div>
+    <div class="valore colore-rosso" id="stat-uscite-focus">0</div>
+    <div class="nota" id="stat-uscite-focus-nota">su 0 consegnati</div>
   </div>
 </div>
 
@@ -311,7 +328,7 @@ let generazione = 0;
 let STUDENTI = [];
 let datiTestCorrente = {};
 let presenzeCorrenti = new Map(); // nome -> {stato, ultimoAggiornamento}
-let risultatiCorrenti = new Set(); // nomi con risultato non annullato
+let risultatiCorrenti = new Map(); // nome -> {usciteFocus, tempoFuoriFocusMs}
 
 onSnapshot(riferimentoStatoAttivo(), (istantanea) => {
   const idAttivo = istantanea.exists() ? istantanea.data().idTest : null;
@@ -327,7 +344,7 @@ function collegaTest(idTest) {
   if (annullaOsservatoreRisultati) { annullaOsservatoreRisultati(); annullaOsservatoreRisultati = null; }
   ID_TEST = idTest || "";
   presenzeCorrenti = new Map();
-  risultatiCorrenti = new Set();
+  risultatiCorrenti = new Map();
 
   if (!idTest) {
     document.getElementById("pannello-test").innerHTML = "⚠️ Nessun test risulta attivo in questo momento.";
@@ -358,8 +375,14 @@ function collegaTest(idTest) {
 
   annullaOsservatoreRisultati = onSnapshot(query(riferimentoRisultati(idTest), where("annullato", "==", false)), (istantanea) => {
     if (generazioneCorrente !== generazione) return;
-    risultatiCorrenti = new Set();
-    istantanea.forEach(d => risultatiCorrenti.add(normalizza(d.data().nome)));
+    risultatiCorrenti = new Map();
+    istantanea.forEach(d => {
+      const dati = d.data();
+      risultatiCorrenti.set(normalizza(dati.nome), {
+        usciteFocus: dati.usciteFocus || 0,
+        tempoFuoriFocusMs: dati.tempoFuoriFocusMs || 0
+      });
+    });
     ricalcolaERendi();
   });
 }
@@ -518,21 +541,41 @@ function ricalcolaERendi() {
   document.getElementById("stat-abbandonati").textContent = secchi.abbandonato.length;
   document.getElementById("stat-mancanti").textContent = secchi.mancante.length;
 
-  popolaSezione("consegnati", secchi.consegnato);
+  const conUsciteFocus = secchi.consegnato.filter(nome => (risultatiCorrenti.get(normalizza(nome))?.usciteFocus || 0) > 0);
+  document.getElementById("stat-uscite-focus").textContent = conUsciteFocus.length;
+  document.getElementById("stat-uscite-focus-nota").textContent = "su " + secchi.consegnato.length + " consegnati";
+
+  popolaSezione("consegnati", secchi.consegnato, true);
   popolaSezione("svolgimento", secchi.svolgimento);
   popolaSezione("attesa", secchi.attesa);
   popolaSezione("abbandonati", secchi.abbandonato);
   popolaSezione("mancanti", secchi.mancante);
 }
 
-function popolaSezione(idBase, elenco) {
+function formattaDurata(ms) {
+  const secondiTotali = Math.round(ms / 1000);
+  const m = Math.floor(secondiTotali / 60), s = secondiTotali % 60;
+  return m > 0 ? (m + "m" + String(s).padStart(2, "0") + "s") : (s + "s");
+}
+
+function popolaSezione(idBase, elenco, mostraUsciteFocus) {
   document.getElementById("conteggio-" + idBase).textContent = elenco.length;
   const corpo = document.getElementById("corpo-" + idBase);
   if (elenco.length === 0) {
     corpo.innerHTML = '<div class="sezione-vuota">Nessuno.</div>';
     return;
   }
-  corpo.innerHTML = elenco.map(nome => '<div class="nome-voce">' + nome.replace(/</g, "&lt;") + '</div>').join("");
+  corpo.innerHTML = elenco.map(nome => {
+    const nomeSicuro = nome.replace(/</g, "&lt;");
+    let badge = "";
+    if (mostraUsciteFocus) {
+      const dettaglio = risultatiCorrenti.get(normalizza(nome));
+      if (dettaglio && dettaglio.usciteFocus > 0) {
+        badge = '<span class="badge-uscita-focus">⚠️ ' + dettaglio.usciteFocus + '× — ' + formattaDurata(dettaglio.tempoFuoriFocusMs) + '</span>';
+      }
+    }
+    return '<div class="nome-voce">' + nomeSicuro + badge + '</div>';
+  }).join("");
 }
 
 // La freschezza delle presenze dipende dal tempo che passa, non solo

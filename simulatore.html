@@ -228,7 +228,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 3</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 4</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -255,6 +255,9 @@
   </label>
   <label class="campo">Abbandoni simulati (%)
     <input type="number" id="campo-abbandoni" value="5" min="0" max="100">
+  </label>
+  <label class="campo">Uscite fuori focus simulate (%)
+    <input type="number" id="campo-uscite-focus" value="15" min="0" max="100">
   </label>
   <button id="btn-avvia">▶ Avvia simulazione</button>
   <button class="secondario" id="btn-ferma" disabled>■ Ferma e pulisci</button>
@@ -627,6 +630,17 @@ function procediConRisposta(nomeBot, pingId) {
     if (!infoAttuale || infoAttuale.stato === "abbandonato") return;
 
     const { punteggio, risposte } = generaRisposteFinte();
+
+    // Uscite dal focus finte, secondo la percentuale configurata,
+    // per poter provare come appaiono in live.html senza aspettare
+    // una prova vera.
+    const percentualeFocus = Number(document.getElementById("campo-uscite-focus").value || 0);
+    let usciteFocus = 0, tempoFuoriFocusMs = 0;
+    if (Math.random() * 100 < percentualeFocus) {
+      usciteFocus = 1 + Math.floor(Math.random() * 3);
+      tempoFuoriFocusMs = Math.round((5 + Math.random() * 85) * 1000);
+    }
+
     const payload = {
       nome: nomeBot,
       timestamp: new Date().toLocaleString("it-IT"),
@@ -635,7 +649,9 @@ function procediConRisposta(nomeBot, pingId) {
       scadutoPerTempo: "NO",
       risposte: risposte,
       annullato: false,
-      numeroTentativo: 1
+      numeroTentativo: 1,
+      usciteFocus: usciteFocus,
+      tempoFuoriFocusMs: tempoFuoriFocusMs
     };
     try {
       await scriviConTempo(setDoc(riferimentoRisultato(ID_TEST, nomeBot), payload));
