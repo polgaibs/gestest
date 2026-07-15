@@ -236,7 +236,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 7</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 8</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -330,6 +330,20 @@
     <h2 style="color: var(--rosso); margin-top:0;">Test già completato</h2>
     <p>Risulta che questo nominativo ha già completato il test in precedenza. Non è possibile ripeterlo.</p>
     <p style="margin-top:16px;">Se ritieni si tratti di un errore, rivolgiti al responsabile in aula.</p>
+  </div>
+
+  <!-- SCHERMATA CONFERMA RIENTRO: il dispositivo ha un tentativo non
+       ancora inviato per questo test. Prima di rientrare in automatico
+       chiediamo conferma, perché un telefono usato da più persone (per
+       esempio durante un collaudo) potrebbe altrimenti far rientrare
+       la persona sbagliata nella sessione di qualcun altro senza che
+       nessuno se ne accorga. -->
+  <div class="scheda nascosto" id="schermata-conferma-rientro">
+    <h2 style="color: var(--blu); margin-top:0;">Bentornato/a</h2>
+    <p>Su questo dispositivo risulta un tentativo già iniziato, non ancora inviato, per <strong id="nome-conferma-rientro"></strong>.</p>
+    <p style="margin-top:12px;">Sei tu che stai rientrando, per esempio dopo aver chiuso la pagina per sbaglio?</p>
+    <button id="btn-conferma-rientro-si" style="margin-top:20px;">Sì, continua da dove ero rimasto</button>
+    <button id="btn-conferma-rientro-no" class="btn-secondario" style="margin-top:10px;">No, non sono io</button>
   </div>
 
   <!-- SCHERMATA 3: QUIZ -->
@@ -562,17 +576,17 @@ async function caricaTestAttivo() {
     document.getElementById("schermata-caricamento").classList.add("nascosto");
 
     // Ripresa automatica: se in locale c'è già un tentativo salvato,
-    // non ancora inviato, per QUESTO stesso test, salto del tutto la
-    // schermata di identificazione e riparto direttamente da dove
-    // era rimasto, senza chiedere di nuovo nome, PERID e PIN. Prima
-    // la ripresa dipendeva dal reinserire un nome che combaciasse
-    // esattamente: ora basta essere sullo stesso dispositivo.
+    // non ancora inviato, per QUESTO stesso test, non si ricomincia
+    // da capo con nome, PERID e PIN, ma nemmeno si rientra in
+    // silenzio: si chiede prima conferma, perché su un dispositivo
+    // usato da più persone (per esempio durante un collaudo) il
+    // rientro automatico silenzioso rischierebbe di far continuare
+    // la sessione sbagliata alla persona sbagliata.
     const salvato = caricaSalvataggio();
     if (salvato && salvato.idTest === ID_TEST && salvato.nome && !salvato.inviato) {
-      nomeStudente = salvato.nome;
-      document.getElementById("schermata-istruzioni").classList.remove("nascosto");
       osservaDisattivazionePrecoce();
-      avviaOppureRiprendi();
+      document.getElementById("nome-conferma-rientro").textContent = nomeSenzaPerid(salvato.nome);
+      document.getElementById("schermata-conferma-rientro").classList.remove("nascosto");
       return;
     }
 
@@ -583,6 +597,29 @@ async function caricaTestAttivo() {
   }
 }
 caricaTestAttivo();
+
+document.getElementById("btn-conferma-rientro-si").addEventListener("click", () => {
+  const salvato = caricaSalvataggio();
+  if (!salvato || salvato.idTest !== ID_TEST) {
+    // Nel frattempo qualcosa è cambiato (per esempio il test è stato
+    // disattivato mentre la conferma era a schermo): meglio ripartire
+    // pulito dall'identificazione che rischiare di riprendere uno
+    // stato non più valido.
+    document.getElementById("schermata-conferma-rientro").classList.add("nascosto");
+    document.getElementById("schermata-id").classList.remove("nascosto");
+    return;
+  }
+  nomeStudente = salvato.nome;
+  document.getElementById("schermata-conferma-rientro").classList.add("nascosto");
+  document.getElementById("schermata-istruzioni").classList.remove("nascosto");
+  avviaOppureRiprendi();
+});
+
+document.getElementById("btn-conferma-rientro-no").addEventListener("click", () => {
+  cancellaSalvataggio();
+  document.getElementById("schermata-conferma-rientro").classList.add("nascosto");
+  document.getElementById("schermata-id").classList.remove("nascosto");
+});
 
 // ============================================================
 // UTILITY
