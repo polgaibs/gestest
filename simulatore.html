@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     SIMULATORE DI CARICO — GesTest
+     Strumento SOLO PER TEST, non collegarlo da admin/quiz/index e
+     non pubblicizzarlo agli allievi. Simula fino a qualche centinaio
+     di "allievi finti" che si connettono, entrano in sala d'attesa,
+     rispondono e inviano i risultati sul test attivo in questo
+     momento, per vedere come regge il sistema prima di usarlo
+     davvero in aula.
+
+     NOMI USATI: il simulatore assegna ai bot i nomi VERI presi
+     dall'elenco allievi del test attivo (uno per bot, mai ripetuti).
+     Questo significa che, sul test usato per il collaudo, quegli
+     allievi risultano "già completato" per davvero. Va bene per un
+     test dedicato al collaudo: dopo, duplica il test dal pannello
+     admin per ripartire pulito con lo stesso elenco e le stesse
+     domande, senza risultati né presenze residue.
+
+     Un solo osservatore Firestore condiviso segue l'avvio del test
+     per tutti i bot insieme: i singoli bot fanno solo scritture
+     dirette, non tengono ciascuno un proprio collegamento in tempo
+     reale, per restare leggeri anche con centinaia di bot nella
+     stessa scheda del browser.
+     ============================================================ -->
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GesTest — Simulatore di carico</title>
+<style>
+  :root {
+    --sfondo: #0b1220;
+    --pannello: #131c2e;
+    --bordo: #223049;
+    --testo: #e6edf5;
+    --testo-fioco: #8a97ab;
+    --blu: #4f8ef7;
+    --verde: #2ecc9a;
+    --oro: #d9a441;
+    --rosso: #e65566;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--sfondo);
+    color: var(--testo);
+    padding: 20px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  h1 { font-size: 1.25rem; margin: 0; }
+  .badge-pericolo {
+    background: rgba(230,85,102,0.15);
+    color: var(--rosso);
+    border: 1px solid var(--rosso);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .riga-info {
+    color: var(--testo-fioco);
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+  }
+  .avviso {
+    background: rgba(217,164,65,0.1);
+    border: 1px solid var(--oro);
+    color: var(--oro);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin: 14px 0;
+    line-height: 1.5;
+  }
+  .pannello-test {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .pannello-test strong { color: var(--verde); }
+  button {
+    background: var(--blu);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { background: #3a445a; cursor: not-allowed; }
+  button.secondario { background: #263351; }
+  button.pericolo { background: var(--rosso); }
+  button.login { background: white; color: #1d1d1d; }
+  input[type="text"], input[type="number"] {
+    background: #0e1626;
+    border: 1px solid var(--bordo);
+    color: var(--testo);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    width: 90px;
+  }
+  label.campo { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--testo-fioco); }
+
+  .griglia-statistiche {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .statistica {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .statistica .etichetta {
+    font-size: 0.72rem;
+    color: var(--testo-fioco);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .statistica .valore {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 4px 0 2px;
+  }
+  .statistica .nota { font-size: 0.72rem; color: var(--testo-fioco); }
+  .colore-verde { color: var(--verde); }
+  .colore-oro { color: var(--oro); }
+  .colore-rosso { color: var(--rosso); }
+  .colore-blu { color: var(--blu); }
+
+  .barra-progresso-cont {
+    background: #0e1626;
+    border: 1px solid var(--bordo);
+    border-radius: 6px;
+    height: 8px;
+    overflow: hidden;
+    margin: 6px 0 16px;
+  }
+  .barra-progresso-int {
+    height: 100%;
+    background: var(--blu);
+    width: 0%;
+    transition: width 0.2s;
+  }
+
+  .riga-controlli {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .corpo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .corpo { grid-template-columns: 1fr; }
+  }
+  .riquadro {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .riquadro h2 {
+    font-size: 0.95rem;
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lista-nomi {
+    max-height: 340px;
+    overflow-y: auto;
+    font-size: 0.82rem;
+  }
+  .lista-nomi .voce {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--bordo);
+  }
+  .lista-nomi .voce:last-child { border-bottom: none; }
+  .lista-vuota { color: var(--testo-fioco); font-size: 0.85rem; padding: 10px 0; }
+  #log {
+    background: #05090f;
+    border: 1px solid var(--bordo);
+    border-radius: 8px;
+    padding: 10px 12px;
+    height: 340px;
+    overflow-y: auto;
+    font-family: "Consolas", monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+  }
+  #log .riga-log-errore { color: var(--rosso); }
+  #log .riga-log-ok { color: var(--verde); }
+  .stato-login {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--testo-fioco);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ GesTest — Simulatore di carico</h1>
+  <span class="badge-pericolo">SOLO PER TEST</span>
+  <span class="stato-login" id="stato-login">
+    <button class="login" id="btn-login">Accedi con Google (serve solo per "Reset risultati bot")</button>
+  </span>
+</header>
+<p class="riga-info">Progetto Firebase: gestest-1d7a3</p>
+
+<div class="avviso">
+  <strong>Prima di avviare:</strong> il simulatore ora usa i nomi VERI dell'elenco allievi del test attivo (uno per bot, senza ripetizioni). Questo significa che, sul test attivo in questo momento, quegli allievi risulteranno "già completato" per davvero, esattamente come se lo avessero fatto sul serio. Va benissimo per un collaudo, ma non lanciarlo su un test che stai per far svolgere davvero: crea o duplica un test apposta per il collaudo, fai partire la simulazione, e quando hai finito duplica di nuovo il test dal pannello admin per ripartire pulito con lo stesso elenco e le stesse domande, senza risultati né presenze residue.
+</div>
+
+<div class="pannello-test" id="pannello-test">Verifica del test attivo in corso...</div>
+
+<div class="riga-controlli">
+  <label class="campo">Bot
+    <input type="number" id="campo-bot" value="150" min="1" max="500">
+  </label>
+  <label class="campo">Ramp ms (attesa tra un bot e l'altro)
+    <input type="number" id="campo-ramp" value="80" min="0" max="5000">
+  </label>
+  <label class="campo">Tempo risposta max (s)
+    <input type="number" id="campo-tempo-risposta" value="15" min="1" max="600">
+  </label>
+  <label class="campo">Abbandoni simulati (%)
+    <input type="number" id="campo-abbandoni" value="5" min="0" max="100">
+  </label>
+  <button id="btn-avvia">▶ Avvia simulazione</button>
+  <button class="secondario" id="btn-ferma" disabled>■ Ferma e pulisci</button>
+  <button class="secondario" id="btn-reset-presenze">↺ Reset presenze bot</button>
+  <button class="pericolo" id="btn-reset-risultati" disabled title="Serve l'accesso Google — cancella solo i risultati dell'ultima simulazione">🗑 Reset risultati simulazione</button>
+  <button class="secondario" id="btn-ricarica-test">⟳ Ricarica test attivo</button>
+</div>
+
+<div class="barra-progresso-cont"><div class="barra-progresso-int" id="barra-progresso"></div></div>
+
+<div class="griglia-statistiche">
+  <div class="statistica">
+    <div class="etichetta">Bot avviati</div>
+    <div class="valore colore-blu" id="stat-connessioni">0</div>
+    <div class="nota" id="stat-connessioni-nota">su 0 richiesti</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Presenze Firebase</div>
+    <div class="valore" id="stat-presenze">0</div>
+    <div class="nota">documenti bot in "presenze"</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">In attesa</div>
+    <div class="valore colore-oro" id="stat-attesa">0</div>
+    <div class="nota">non ancora avviato</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">In svolgimento</div>
+    <div class="valore colore-blu" id="stat-svolgimento">0</div>
+    <div class="nota">sta "rispondendo"</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Consegnati</div>
+    <div class="valore colore-verde" id="stat-consegnati">0</div>
+    <div class="nota">risultato inviato</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Abbandonati</div>
+    <div class="valore colore-rosso" id="stat-abbandonati">0</div>
+    <div class="nota">usciti senza consegnare</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Errori</div>
+    <div class="valore colore-rosso" id="stat-errori">0</div>
+    <div class="nota">scritture fallite</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">RTT medio</div>
+    <div class="valore" id="stat-rtt">— ms</div>
+    <div class="nota">tempo di scrittura</div>
+  </div>
+</div>
+
+<div class="corpo">
+  <div class="riquadro">
+    <h2>👥 Stato dei bot</h2>
+    <div class="lista-nomi" id="lista-bot">
+      <p class="lista-vuota">Nessun bot avviato.</p>
+    </div>
+  </div>
+  <div class="riquadro">
+    <h2>📜 Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot,
+  collection, getDocs, query, where, writeBatch
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAZaljofnVGilyzRMVjqtTuq7zlFGoJUMQ",
+  authDomain: "gestest-1d7a3.firebaseapp.com",
+  projectId: "gestest-1d7a3",
+  storageBucket: "gestest-1d7a3.firebasestorage.app",
+  messagingSenderId: "653566650662",
+  appId: "1:653566650662:web:4c8eff3675d7dbf18df9e7"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+const auth = getAuth(appFirebase);
+
+const MARCA_SESSIONE_SIMULATORE = "simulatore-loadtest";
+
+function normalizza(testo) { return (testo || "").toString().trim().toLowerCase(); }
+
+function riferimentoTest(idTest) { return doc(db, "test", idTest); }
+function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
+function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
+function riferimentoPresenza(idTest, nome) { return doc(db, "test", idTest, "presenze", normalizza(nome)); }
+function riferimentoRisultato(idTest, nome) { return doc(db, "test", idTest, "risultati", normalizza(nome)); }
+
+// ============================================================
+// LOG
+// ============================================================
+const elLog = document.getElementById("log");
+function log(messaggio, tipo) {
+  const riga = document.createElement("div");
+  if (tipo) riga.className = "riga-log-" + tipo;
+  const ora = new Date().toLocaleTimeString("it-IT");
+  riga.textContent = "[" + ora + "] " + messaggio;
+  elLog.appendChild(riga);
+  elLog.scrollTop = elLog.scrollHeight;
+}
+
+// ============================================================
+// LOGIN (serve solo per poter cancellare i risultati dei bot,
+// operazione riservata all'admin dalle regole Firestore)
+// ============================================================
+const provider = new GoogleAuthProvider();
+let admin = false;
+document.getElementById("btn-login").addEventListener("click", () => {
+  signInWithPopup(auth, provider).catch(e => log("Accesso non riuscito: " + e.message, "errore"));
+});
+onAuthStateChanged(auth, async (utente) => {
+  const contenitore = document.getElementById("stato-login");
+  const btnResetRisultati = document.getElementById("btn-reset-risultati");
+  if (!utente) {
+    admin = false;
+    btnResetRisultati.disabled = true;
+    contenitore.innerHTML = '<button class="login" id="btn-login">Accedi con Google (serve solo per "Reset risultati bot")</button>';
+    document.getElementById("btn-login").addEventListener("click", () => {
+      signInWithPopup(auth, provider).catch(e => log("Accesso non riuscito: " + e.message, "errore"));
+    });
+    return;
+  }
+  try {
+    const istantaneaAdmin = await getDoc(doc(db, "admin", utente.email));
+    admin = istantaneaAdmin.exists();
+  } catch (e) {
+    admin = false;
+  }
+  btnResetRisultati.disabled = !admin;
+  contenitore.innerHTML = (admin ? "✅ " : "⚠️ non admin — ") + utente.email +
+    ' <button class="secondario" id="btn-logout" style="padding:4px 10px; font-size:0.75rem;">Esci</button>';
+  document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
+});
+
+// ============================================================
+// TEST ATTIVO
+// ============================================================
+let ID_TEST = "";
+let NOME_TEST = "";
+let DOMANDE = [];
+let DURATA_MINUTI = 0;
+let STUDENTI = [];
+
+async function caricaTestAttivo() {
+  const pannello = document.getElementById("pannello-test");
+  pannello.textContent = "Verifica del test attivo in corso...";
+  try {
+    const puntatore = await getDoc(doc(db, "stato", "attivo"));
+    const idAttivo = puntatore.exists() ? puntatore.data().idTest : null;
+    if (!idAttivo) {
+      pannello.innerHTML = "⚠️ Nessun test risulta attivo in questo momento. Attivane uno dal pannello admin prima di avviare la simulazione.";
+      ID_TEST = "";
+      return;
+    }
+    const istantaneaTest = await getDoc(riferimentoTest(idAttivo));
+    if (!istantaneaTest.exists() || istantaneaTest.data().attivo !== true) {
+      pannello.innerHTML = "⚠️ Il puntatore indica un test che non risulta più attivo.";
+      ID_TEST = "";
+      return;
+    }
+    const dati = istantaneaTest.data();
+    ID_TEST = idAttivo;
+    NOME_TEST = dati.nome || idAttivo;
+    DOMANDE = dati.domande || [];
+    DURATA_MINUTI = dati.durataMinuti || 0;
+    STUDENTI = dati.studenti || [];
+    pannello.innerHTML = 'Test attivo: <strong>' + NOME_TEST + '</strong> (' + ID_TEST + ') — ' +
+      DOMANDE.length + ' domande, ' + STUDENTI.length + ' allievi in elenco, ' +
+      (DURATA_MINUTI > 0 ? DURATA_MINUTI + ' minuti' : 'nessun limite di tempo') +
+      '. I bot useranno nomi presi da questo elenco.';
+    log("Test attivo rilevato: " + NOME_TEST + " (" + ID_TEST + "), " + STUDENTI.length + " allievi in elenco.");
+  } catch (e) {
+    pannello.innerHTML = "⚠️ Errore nel controllare il test attivo: " + e.message;
+    ID_TEST = "";
+  }
+}
+document.getElementById("btn-ricarica-test").addEventListener("click", caricaTestAttivo);
+caricaTestAttivo();
+
+// ============================================================
+// STATO SIMULAZIONE
+// ============================================================
+let simulazioneInCorso = false;
+let botAttivi = new Map(); // nomeBot -> { stato: 'connessione'|'attesa'|'in_corso'|'consegnato'|'abbandonato'|'errore' }
+let timerBot = []; // tutti i setTimeout in corso, per poterli cancellare con "Ferma"
+let rttCampioni = [];
+let annullaOsservatoreAvvio = null;
+let testAvviatoAdesso = false;
+let numeroBotRichiesti = 0;
+let numeroBotConnessi = 0;
+let numeroErrori = 0;
+let nomiUsatiUltimaCorsa = new Set();
+
+function mischia(array) {
+  const copia = [...array];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+function registraRtt(ms) {
+  rttCampioni.push(ms);
+  if (rttCampioni.length > 200) rttCampioni.shift();
+}
+
+function scriviConTempo(promessaScrittura) {
+  const inizio = performance.now();
+  return promessaScrittura.then(risultato => {
+    registraRtt(Math.round(performance.now() - inizio));
+    return risultato;
+  });
+}
+
+function pianificaTimer(funzione, ritardoMs) {
+  const id = setTimeout(() => {
+    timerBot = timerBot.filter(t => t !== id);
+    if (!simulazioneInCorso) return;
+    funzione();
+  }, ritardoMs);
+  timerBot.push(id);
+  return id;
+}
+
+// ============================================================
+// AGGIORNAMENTO INTERFACCIA
+// ============================================================
+function aggiornaInterfaccia() {
+  const valori = Array.from(botAttivi.values());
+  const inAttesa = valori.filter(b => b.stato === "attesa").length;
+  const inSvolgimento = valori.filter(b => b.stato === "in_corso").length;
+  const consegnati = valori.filter(b => b.stato === "consegnato").length;
+  const abbandonati = valori.filter(b => b.stato === "abbandonato").length;
+
+  document.getElementById("stat-connessioni").textContent = numeroBotConnessi;
+  document.getElementById("stat-connessioni-nota").textContent = "su " + numeroBotRichiesti + " richiesti";
+  document.getElementById("stat-presenze").textContent = inAttesa + inSvolgimento;
+  document.getElementById("stat-attesa").textContent = inAttesa;
+  document.getElementById("stat-svolgimento").textContent = inSvolgimento;
+  document.getElementById("stat-consegnati").textContent = consegnati;
+  document.getElementById("stat-abbandonati").textContent = abbandonati;
+  document.getElementById("stat-errori").textContent = numeroErrori;
+  document.getElementById("stat-rtt").textContent = rttCampioni.length
+    ? Math.round(rttCampioni.reduce((a, b) => a + b, 0) / rttCampioni.length) + " ms"
+    : "— ms";
+
+  const percentuale = numeroBotRichiesti > 0 ? Math.round((numeroBotConnessi / numeroBotRichiesti) * 100) : 0;
+  document.getElementById("barra-progresso").style.width = percentuale + "%";
+
+  const lista = document.getElementById("lista-bot");
+  if (botAttivi.size === 0) {
+    lista.innerHTML = '<p class="lista-vuota">Nessun bot avviato.</p>';
+    return;
+  }
+  const etichette = {
+    connessione: "Connessione...", attesa: "In attesa", in_corso: "In svolgimento",
+    consegnato: "Consegnato", abbandonato: "Abbandonato", errore: "Errore"
+  };
+  const coloriTesto = {
+    connessione: "colore-blu", attesa: "colore-oro", in_corso: "colore-blu",
+    consegnato: "colore-verde", abbandonato: "colore-rosso", errore: "colore-rosso"
+  };
+  const righeHtml = [];
+  botAttivi.forEach((info, nome) => {
+    righeHtml.push('<div class="voce"><span>' + nome + '</span><span class="' + (coloriTesto[info.stato] || "") + '">' + (etichette[info.stato] || info.stato) + '</span></div>');
+  });
+  lista.innerHTML = righeHtml.join("");
+}
+let intervalloRefreshUI = setInterval(aggiornaInterfaccia, 500);
+
+// ============================================================
+// CICLO DI VITA DI UN SINGOLO BOT
+// ============================================================
+function generaRisposteFinte() {
+  let punteggio = 0;
+  const risposte = DOMANDE.map(d => {
+    const scegliCorretta = Math.random() < 0.7; // il bot "sa" la risposta il 70% delle volte
+    const indiceScelto = scegliCorretta ? d.corretta : Math.floor(Math.random() * d.opzioni.length);
+    if (indiceScelto === d.corretta) punteggio++;
+    return {
+      id: d.id,
+      testo: d.testo,
+      risposta: d.opzioni[indiceScelto] || "",
+      corretta: indiceScelto === d.corretta ? "SI" : "NO"
+    };
+  });
+  return { punteggio, risposte };
+}
+
+async function eseguiBot(nomeBot, percentualeAbbandono) {
+  if (!simulazioneInCorso || !ID_TEST) return;
+  botAttivi.set(nomeBot, { stato: "connessione" });
+  numeroBotConnessi++;
+
+  const sessioneBot = "bot-" + nomeBot + "-" + Math.random().toString(36).slice(2);
+
+  try {
+    await scriviConTempo(setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+      nome: nomeBot, stato: "attesa", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+    }));
+  } catch (e) {
+    numeroErrori++;
+    botAttivi.set(nomeBot, { stato: "errore" });
+    log(nomeBot + ": errore scrivendo la presenza — " + e.message, "errore");
+    return;
+  }
+  botAttivi.set(nomeBot, { stato: "attesa" });
+
+  // Ping periodico di presenza, come farebbe davvero il quiz, finché
+  // il bot non consegna, abbandona, o la simulazione viene fermata.
+  const pingId = setInterval(() => {
+    if (!simulazioneInCorso) { clearInterval(pingId); return; }
+    const info = botAttivi.get(nomeBot);
+    if (!info || info.stato === "consegnato" || info.stato === "abbandonato" || info.stato === "errore") {
+      clearInterval(pingId);
+      return;
+    }
+    setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+      nome: nomeBot, stato: info.stato, ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+    }, { merge: true }).catch(() => {});
+  }, 25000);
+
+  // Un bot su tanti (percentuale configurabile) abbandona invece di
+  // consegnare, per simulare chi si scollega senza finire, utile per
+  // vedere come si comportano i contatori "mancanti" sulla locandina.
+  if (Math.random() * 100 < percentualeAbbandono) {
+    const ritardoAbbandono = 3000 + Math.random() * 15000;
+    pianificaTimer(() => {
+      botAttivi.set(nomeBot, { stato: "abbandonato" });
+      clearInterval(pingId);
+    }, ritardoAbbandono);
+    return;
+  }
+
+  aspettaAvvioPoiRispondi(nomeBot, pingId);
+}
+
+const botInAttesaDiAvvio = new Set();
+function aspettaAvvioPoiRispondi(nomeBot, pingId) {
+  if (testAvviatoAdesso) {
+    procediConRisposta(nomeBot, pingId);
+  } else {
+    botInAttesaDiAvvio.add(nomeBot);
+  }
+}
+
+function procediConRisposta(nomeBot, pingId) {
+  if (!simulazioneInCorso) return;
+  const info = botAttivi.get(nomeBot);
+  if (!info || info.stato === "abbandonato" || info.stato === "errore") return;
+  botAttivi.set(nomeBot, { stato: "in_corso" });
+
+  const tempoMassimoMs = Number(document.getElementById("campo-tempo-risposta").value || 15) * 1000;
+  const ritardoRisposta = 500 + Math.random() * Math.max(tempoMassimoMs - 500, 500);
+
+  pianificaTimer(async () => {
+    if (!simulazioneInCorso) return;
+    const infoAttuale = botAttivi.get(nomeBot);
+    if (!infoAttuale || infoAttuale.stato === "abbandonato") return;
+
+    const { punteggio, risposte } = generaRisposteFinte();
+    const payload = {
+      nome: nomeBot,
+      timestamp: new Date().toLocaleString("it-IT"),
+      punteggio: punteggio,
+      totaleDomande: DOMANDE.length,
+      scadutoPerTempo: "NO",
+      risposte: risposte,
+      annullato: false,
+      numeroTentativo: 1
+    };
+    try {
+      await scriviConTempo(setDoc(riferimentoRisultato(ID_TEST, nomeBot), payload));
+      botAttivi.set(nomeBot, { stato: "consegnato" });
+      clearInterval(pingId);
+    } catch (e) {
+      numeroErrori++;
+      botAttivi.set(nomeBot, { stato: "errore" });
+      log(nomeBot + ": errore inviando il risultato — " + (e.message || e), "errore");
+    }
+  }, ritardoRisposta);
+}
+
+// Un solo osservatore condiviso, non uno per bot: appena il test
+// risulta avviato, tutti i bot ancora in sala d'attesa passano a
+// rispondere, ciascuno con un ritardo casuale proprio.
+function collegaOsservatoreAvvio() {
+  if (annullaOsservatoreAvvio) return;
+  annullaOsservatoreAvvio = onSnapshot(riferimentoTest(ID_TEST), (istantanea) => {
+    const dati = istantanea.exists() ? istantanea.data() : {};
+    if (dati.avviatoTimestamp && !testAvviatoAdesso) {
+      testAvviatoAdesso = true;
+      log("Il test risulta avviato: i bot in attesa iniziano a rispondere.", "ok");
+      botInAttesaDiAvvio.forEach(nomeBot => {
+        const info = botAttivi.get(nomeBot);
+        if (info && info.stato === "attesa") {
+          procediConRisposta(nomeBot, null);
+        }
+      });
+      botInAttesaDiAvvio.clear();
+    }
+    if (!dati.avviatoTimestamp) {
+      testAvviatoAdesso = false;
+    }
+  });
+}
+
+// ============================================================
+// AVVIA / FERMA SIMULAZIONE
+// ============================================================
+document.getElementById("btn-avvia").addEventListener("click", async () => {
+  if (!ID_TEST) {
+    log("Nessun test attivo: ricarica dopo averne attivato uno dal pannello admin.", "errore");
+    return;
+  }
+  if (STUDENTI.length === 0) {
+    log("Il test attivo non ha nessun allievo in elenco: non c'è nessun nome da assegnare ai bot.", "errore");
+    return;
+  }
+  let numeroBot = Math.max(1, Math.min(500, parseInt(document.getElementById("campo-bot").value, 10) || 1));
+  const rampMs = Math.max(0, parseInt(document.getElementById("campo-ramp").value, 10) || 0);
+  const percentualeAbbandono = Math.max(0, Math.min(100, parseInt(document.getElementById("campo-abbandoni").value, 10) || 0));
+
+  if (numeroBot > STUDENTI.length) {
+    log("Richiesti " + numeroBot + " bot, ma l'elenco ha solo " + STUDENTI.length + " allievi: ogni nome può essere usato una volta sola (come farebbe un allievo vero), quindi limito a " + STUDENTI.length + " bot.");
+    numeroBot = STUDENTI.length;
+  }
+  if (numeroBot > 256) {
+    log("Attenzione: oltre circa 250-300 connessioni nella stessa scheda Chrome può iniziare a fare da collo di bottiglia il browser stesso, non Firestore. Se serve testare numeri più alti, apri più schede o usa Node.js.", null);
+  }
+
+  const nomiMischiati = mischia(STUDENTI).slice(0, numeroBot);
+
+  simulazioneInCorso = true;
+  testAvviatoAdesso = false;
+  botAttivi = new Map();
+  timerBot = [];
+  rttCampioni = [];
+  numeroBotRichiesti = numeroBot;
+  numeroBotConnessi = 0;
+  numeroErrori = 0;
+  botInAttesaDiAvvio.clear();
+  nomiUsatiUltimaCorsa = new Set(nomiMischiati);
+
+  document.getElementById("btn-avvia").disabled = true;
+  document.getElementById("btn-ferma").disabled = false;
+
+  collegaOsservatoreAvvio();
+  log("Avvio simulazione: " + numeroBot + " bot con nomi presi dall'elenco allievi, ramp " + rampMs + " ms, test \"" + NOME_TEST + "\".");
+
+  nomiMischiati.forEach((nomeBot, indice) => {
+    pianificaTimer(() => eseguiBot(nomeBot, percentualeAbbandono), (indice + 1) * rampMs);
+  });
+});
+
+document.getElementById("btn-ferma").addEventListener("click", async () => {
+  simulazioneInCorso = false;
+  timerBot.forEach(id => clearTimeout(id));
+  timerBot = [];
+  if (annullaOsservatoreAvvio) { annullaOsservatoreAvvio(); annullaOsservatoreAvvio = null; }
+  document.getElementById("btn-avvia").disabled = false;
+  document.getElementById("btn-ferma").disabled = true;
+  log("Simulazione fermata. Pulizia delle presenze dei bot in corso...");
+  await pulisciPresenzeBot();
+  log("Pulizia completata.", "ok");
+});
+
+// ============================================================
+// RESET PRESENZE BOT (pubblico: le regole permettono a chiunque di
+// cancellare le presenze, come fa la locandina quando azzera il turno)
+// ============================================================
+async function pulisciPresenzeBot() {
+  if (!ID_TEST) return;
+  try {
+    const istantanea = await getDocs(query(riferimentoPresenze(ID_TEST), where("sessione", "==", MARCA_SESSIONE_SIMULATORE)));
+    if (istantanea.empty) return;
+    const batch = writeBatch(db);
+    istantanea.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    log("Rimossi " + istantanea.size + " documenti di presenza dei bot.", "ok");
+  } catch (e) {
+    log("Errore nella pulizia delle presenze: " + e.message, "errore");
+  }
+}
+document.getElementById("btn-reset-presenze").addEventListener("click", () => {
+  if (!ID_TEST) { log("Nessun test attivo.", "errore"); return; }
+  pulisciPresenzeBot();
+});
+
+// ============================================================
+// RESET RISULTATI BOT (riservato, richiede login admin: le regole
+// Firestore permettono di cancellare risultati solo a chi risulta
+// admin. Tocca solo i documenti con nome che inizia per "BOT ",
+// non sfiora mai risultati di allievi veri.)
+// ============================================================
+document.getElementById("btn-reset-risultati").addEventListener("click", async () => {
+  if (!admin) { log("Serve l'accesso Google da amministratore autorizzato.", "errore"); return; }
+  if (!ID_TEST) { log("Nessun test attivo.", "errore"); return; }
+  if (nomiUsatiUltimaCorsa.size === 0) { log("Nessuna corsa di simulazione registrata in questa pagina: non so quali nomi ripulire. Se hai ricaricato la pagina, duplica il test dall'admin invece di cercare di ripulirlo qui.", "errore"); return; }
+  if (!confirm('Cancellare i risultati dei ' + nomiUsatiUltimaCorsa.size + ' allievi usati nell\'ultima simulazione su questo test?')) return;
+  try {
+    const batch = writeBatch(db);
+    let contatore = 0;
+    nomiUsatiUltimaCorsa.forEach(nome => {
+      batch.delete(riferimentoRisultato(ID_TEST, nome));
+      contatore++;
+    });
+    await batch.commit();
+    log("Cancellati " + contatore + " risultati della simulazione.", "ok");
+  } catch (e) {
+    log("Errore nella cancellazione: " + e.message, "errore");
+  }
+});
+</script>
+
+</body>
+</html>
