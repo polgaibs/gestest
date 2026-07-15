@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<!-- VERSIONE 2, tutto Firestore, nessun Apps Script, nessun foglio Google.
+     Stessa interfaccia e stesso comportamento della versione precedente
+     vista dall'allievo. In più: identificativo di sessione per
+     dispositivo, per distinguere "sono io che rientro" da "è un altro
+     con lo stesso nome", e ripresa automatica dopo un ricaricamento
+     accidentale senza dover reinserire nome e PIN. -->
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test Scuola Pol.G.A.I. Brescia</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  :root {
+    --blu: #1d3557;
+    --blu-chiaro: #457b9d;
+    --rosso: #e63946;
+    --grigio-chiaro: #f1f1f1;
+    --verde: #2a9d8f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--grigio-chiaro);
+    margin: 0;
+    padding: 0;
+    color: #1d1d1d;
+  }
+  .contenitore {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 24px 16px 60px 16px;
+  }
+  header {
+    text-align: center;
+    padding: 16px 16px;
+    background: var(--blu);
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.3rem;
+    flex: 1;
+    text-align: center;
+  }
+  .stemma {
+    height: 60px;
+    width: auto;
+    flex-shrink: 0;
+  }
+  .scheda {
+    background: white;
+    border-radius: 10px;
+    padding: 24px;
+    margin-top: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  label {
+    display: block;
+    margin-bottom: 10px;
+    margin-top: 38px;
+    font-weight: 600;
+    color: var(--blu);
+  }
+  label:first-of-type {
+    margin-top: 0;
+  }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 12px;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+  .autocomplete-wrapper {
+    position: relative;
+    margin-bottom: 18px;
+  }
+  .suggerimenti {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ccc;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    max-height: 180px;
+    overflow-y: auto;
+    z-index: 10;
+    display: none;
+  }
+  .suggerimenti div {
+    padding: 10px 12px;
+    cursor: pointer;
+  }
+  .suggerimenti div:hover, .suggerimenti div.attivo {
+    background: var(--grigio-chiaro);
+  }
+  button {
+    background: var(--blu);
+    color: white;
+    border: none;
+    padding: 14px 20px;
+    font-size: 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 8px;
+  }
+  button:hover { background: var(--blu-chiaro); }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+  .errore {
+    color: var(--rosso);
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .nascosto { display: none !important; }
+  .timer {
+    position: sticky;
+    top: 0;
+    background: var(--blu);
+    color: white;
+    text-align: center;
+    padding: 12px;
+    font-size: 1.5rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    z-index: 20;
+    transition: background-color 1s linear;
+  }
+  @keyframes lampeggiaTimerCritico {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .timer.timer-critico {
+    animation: lampeggiaTimerCritico 1s infinite;
+  }
+  .nome-allievo-quiz {
+    text-align: center;
+    background: var(--blu-scuro, #14273f);
+    color: white;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 10px 12px;
+    font-size: 1rem;
+    text-transform: uppercase;
+  }
+  .nome-allievo-attesa {
+    text-align: center;
+    background: var(--blu);
+    color: white;
+    font-weight: 800;
+    letter-spacing: 1px;
+    padding: 20px 16px;
+    font-size: 1.8rem;
+    line-height: 1.25;
+    text-transform: uppercase;
+    border-radius: 10px;
+    margin-top: 20px;
+    word-break: break-word;
+  }
+  .etichetta-nome-attesa {
+    text-align: center;
+    color: #888;
+    font-size: 0.85rem;
+    margin-top: 24px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .barra-progresso {
+    height: 6px;
+    background: #ddd;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 16px 0;
+  }
+  .barra-progresso-interna {
+    height: 100%;
+    background: var(--verde);
+    transition: width 0.3s;
+  }
+  .numero-domanda {
+    color: var(--blu-chiaro);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .testo-domanda {
+    font-size: 1.15rem;
+    margin-bottom: 20px;
+    line-height: 1.4;
+  }
+  .opzione {
+    display: block;
+    background: white;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .opzione:hover { border-color: var(--blu-chiaro); }
+  .opzione.selezionata {
+    border-color: var(--blu);
+    background: #eaf1f8;
+    font-weight: 600;
+  }
+  .opzione input { display: none; }
+  .navigazione {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .navigazione button { margin-top: 0; }
+  .btn-secondario {
+    background: white;
+    color: var(--blu);
+    border: 2px solid var(--blu) !important;
+  }
+  .btn-secondario:hover { background: var(--grigio-chiaro); }
+  .schermata-finale {
+    text-align: center;
+  }
+  .schermata-finale h2 { color: var(--verde); }
+  .invio-corso {
+    text-align: center;
+    padding: 40px 0;
+  }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2, tutto Firestore</div>
+
+<div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
+  Connessione instabile, sto ritentando in automatico...
+</div>
+
+<header>
+  <img src="stemma.png" alt="Stemma" class="stemma">
+  <h1>Scuola Pol.G.A.I. Brescia<br>Test di valutazione</h1>
+</header>
+
+<div class="contenitore">
+
+  <!-- SCHERMATA 0: CARICAMENTO -->
+  <div class="scheda" id="schermata-caricamento">
+    <p style="text-align:center;">Caricamento del test in corso...</p>
+  </div>
+
+  <!-- SCHERMATA ERRORE: NESSUN TEST ATTIVO -->
+  <div class="scheda nascosto" id="schermata-nessun-test">
+    <p class="errore" style="display:block;">Al momento non risulta nessun test attivo. Rivolgiti al responsabile in aula.</p>
+  </div>
+
+  <!-- SCHERMATA 1: IDENTIFICAZIONE -->
+  <div class="scheda nascosto" id="schermata-id">
+    <p class="errore" id="errore-id"></p>
+    <label for="campo-nome">Cognome e Nome</label>
+    <div class="autocomplete-wrapper">
+      <input type="text" id="campo-nome" placeholder="Inizia a digitare..." autocomplete="off">
+      <div class="suggerimenti" id="lista-suggerimenti"></div>
+    </div>
+    <div id="riga-campo-perid">
+      <label for="campo-perid">Il tuo PERID</label>
+      <input type="text" id="campo-perid" placeholder="Il numero associato al tuo nominativo" inputmode="numeric" autocomplete="off">
+    </div>
+    <label for="campo-pin">Codice PIN (fornito in aula)</label>
+    <input type="text" id="campo-pin" placeholder="Inserisci il PIN" inputmode="numeric" autocomplete="off">
+    <button id="btn-inizia">Inizia il test</button>
+  </div>
+
+  <!-- SCHERMATA 2: ISTRUZIONI -->
+  <div class="scheda nascosto" id="schermata-istruzioni">
+    <h2 style="color: var(--blu); margin-top:0;">Istruzioni</h2>
+    <p id="testo-durata">Il test inizierà per tutti nello stesso momento, quando lo dirà il responsabile in aula.</p>
+    <p>Il test contiene <strong id="testo-num-domande">domande</strong> a risposta multipla. Puoi tornare indietro e cambiare le risposte già date in qualsiasi momento, finché non invii il test<span id="testo-o-scade"> o non scade il tempo</span>.</p>
+    <p id="testo-scadenza">Allo scadere del tempo, il test verrà inviato automaticamente con le risposte date fino a quel momento.</p>
+    <button id="btn-avvia">Sei pronto, clicca e aspetta il via</button>
+  </div>
+
+  <!-- SCHERMATA 2B: IN ATTESA DEL VIA (solo per test con timer) -->
+  <div class="scheda nascosto" id="schermata-attesa">
+    <h2 style="color: var(--blu); margin-top:0;">In attesa del via</h2>
+    <p>Il test inizierà per tutti gli studenti nello stesso momento, quando il docente darà il via dalla postazione in aula.</p>
+    <p style="text-align:center; margin-top:24px; color: var(--blu-chiaro); font-weight:600;">Attendere prego...</p>
+    <p class="etichetta-nome-attesa">Mostra questa schermata per la verifica</p>
+    <div class="nome-allievo-attesa" id="nome-allievo-attesa"></div>
+  </div>
+
+  <!-- SCHERMATA NOME GIÀ IN USO: qualcun altro è già connesso con lo stesso nome -->
+  <div class="scheda nascosto" id="schermata-nome-in-uso">
+    <h2 style="color: var(--rosso); margin-top:0;">Nome già in uso</h2>
+    <p>Risulta che qualcuno è già collegato con questo stesso nome in questo momento, su un altro telefono.</p>
+    <p style="margin-top:16px;">Se sei tu, su un altro dispositivo, torna a usare quello con cui avevi iniziato. Se non sei stato tu, avvisa il responsabile in aula prima di continuare.</p>
+  </div>
+
+  <!-- SCHERMATA GIÀ INIZIATO: il test è già avviato, anche se in pausa, per chi arriva solo ora -->
+  <div class="scheda nascosto" id="schermata-gia-iniziato">
+    <h2 style="color: var(--rosso); margin-top:0;">Test già iniziato</h2>
+    <p>Il test è già iniziato per tutti gli altri studenti. Non è più possibile accedere in questo momento, anche se il test dovesse risultare in pausa.</p>
+    <p style="margin-top:16px;">Rivolgiti al responsabile in aula per sapere come procedere.</p>
+  </div>
+
+  <!-- SCHERMATA BLOCCO: il test è stato disattivato dal responsabile -->
+  <div class="scheda nascosto" id="schermata-bloccato">
+    <h2 style="color: var(--rosso); margin-top:0;">Test interrotto</h2>
+    <p>Il responsabile ha interrotto il test. Le risposte non sono state inviate.</p>
+    <p style="margin-top:16px;">Rivolgiti al responsabile in aula per sapere come procedere.</p>
+    <button id="btn-ricomincia" style="margin-top:20px;">Ricomincia</button>
+  </div>
+
+  <!-- SCHERMATA IN PAUSA: il docente ha messo in pausa il test -->
+  <div class="scheda nascosto" id="schermata-pausa">
+    <h2 style="color: var(--blu-chiaro); margin-top:0;">Test in pausa</h2>
+    <p>Il responsabile ha messo in pausa il test. Il tempo è fermo, le tue risposte sono già state salvate in locale.</p>
+    <p style="text-align:center; margin-top:24px; color: var(--blu-chiaro); font-weight:600;">Attendere la ripresa...</p>
+  </div>
+
+  <!-- SCHERMATA GIÀ COMPLETATO: già inviato in passato, nessun nuovo tentativo concesso -->
+  <div class="scheda nascosto" id="schermata-gia-completato">
+    <h2 style="color: var(--rosso); margin-top:0;">Test già completato</h2>
+    <p>Risulta che questo nominativo ha già completato il test in precedenza. Non è possibile ripeterlo.</p>
+    <p style="margin-top:16px;">Se ritieni si tratti di un errore, rivolgiti al responsabile in aula.</p>
+  </div>
+
+  <!-- SCHERMATA 3: QUIZ -->
+  <div class="nascosto" id="schermata-quiz">
+    <div class="nome-allievo-quiz nascosto" id="nome-allievo-quiz"></div>
+    <div class="timer nascosto" id="timer">20:00</div>
+    <div class="scheda">
+      <div class="barra-progresso"><div class="barra-progresso-interna" id="barra-interna"></div></div>
+      <div class="numero-domanda" id="numero-domanda"></div>
+      <div class="testo-domanda" id="testo-domanda"></div>
+      <div id="contenitore-opzioni"></div>
+      <p class="errore" id="errore-risposta-obbligatoria">Devi selezionare una risposta prima di continuare.</p>
+      <div class="navigazione">
+        <button class="btn-secondario" id="btn-indietro">Indietro</button>
+        <button id="btn-avanti">Avanti</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCHERMATA 4: INVIO IN CORSO -->
+  <div class="scheda nascosto invio-corso" id="schermata-invio">
+    <p>Invio del test in corso, attendere...</p>
+    <p id="messaggio-stato-invio" style="color: var(--rosso); font-weight: 600; margin-top: 10px;"></p>
+  </div>
+
+  <!-- SCHERMATA 5: FINE -->
+  <div class="scheda nascosto schermata-finale" id="schermata-fine">
+    <h2>Test completato</h2>
+    <p>Le tue risposte sono state inviate correttamente.</p>
+    <p>Puoi chiudere questa pagina.</p>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot,
+  collection, query, where
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+// ============================================================
+// FIREBASE, stesso progetto di locandina e pannello admin.
+// Ora anche domande, PIN, elenco allievi e risultati finali
+// vivono qui, non più sul foglio Google.
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyAZaljofnVGilyzRMVjqtTuq7zlFGoJUMQ",
+  authDomain: "gestest-1d7a3.firebaseapp.com",
+  projectId: "gestest-1d7a3",
+  storageBucket: "gestest-1d7a3.firebasestorage.app",
+  messagingSenderId: "653566650662",
+  appId: "1:653566650662:web:4c8eff3675d7dbf18df9e7",
+  measurementId: "G-NTL5VL2MNE"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+
+function riferimentoTest() {
+  return doc(db, "test", ID_TEST);
+}
+function riferimentoPresenza(nome) {
+  return doc(db, "test", ID_TEST, "presenze", normalizza(nome));
+}
+function riferimentoRisultati() {
+  return collection(db, "test", ID_TEST, "risultati");
+}
+function scriviPresenza(stato) {
+  if (!ID_TEST || !nomeStudente) return;
+  setDoc(riferimentoPresenza(nomeStudente), {
+    nome: nomeStudente,
+    stato: stato,
+    ultimoAggiornamento: Date.now(),
+    sessione: idSessioneDispositivo()
+  }, { merge: true })
+    .then(() => mostraBannerConnessione(false))
+    .catch(() => mostraBannerConnessione(true));
+}
+
+function mostraBannerConnessione(visibile) {
+  document.getElementById("banner-connessione").style.display = visibile ? "block" : "none";
+}
+
+// ============================================================
+// IDENTIFICATIVO DI SESSIONE PER DISPOSITIVO
+// Generato una sola volta per browser e conservato in locale,
+// non legato a un singolo test. Serve a distinguere "sono io che
+// rientro, per esempio dopo un F5" da "è davvero qualcun altro
+// con lo stesso nome", confrontando questo valore oltre al nome,
+// invece di basarsi solo sulla freschezza del segnale di presenza
+// come faceva la versione precedente.
+// ============================================================
+const CHIAVE_SESSIONE_DISPOSITIVO = "test_silp_sessione_dispositivo";
+let sessioneDispositivoCache = null;
+function idSessioneDispositivo() {
+  if (sessioneDispositivoCache) return sessioneDispositivoCache;
+  try {
+    let valore = localStorage.getItem(CHIAVE_SESSIONE_DISPOSITIVO);
+    if (!valore) {
+      valore = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(36).slice(2)));
+      localStorage.setItem(CHIAVE_SESSIONE_DISPOSITIVO, valore);
+    }
+    sessioneDispositivoCache = valore;
+  } catch (e) {
+    // Se localStorage non è disponibile, uso un valore valido solo
+    // per questo caricamento di pagina: peggiora la ripresa dopo F5,
+    // ma non impedisce di svolgere il test.
+    sessioneDispositivoCache = "temp-" + Math.random().toString(36).slice(2);
+  }
+  return sessioneDispositivoCache;
+}
+
+// ============================================================
+// CONFIGURAZIONE / STATO
+// ============================================================
+let PIN_CORRETTO = "";
+let TEST_HA_PERID = false;
+let DOMANDE = [];
+let STUDENTI = [];
+let ID_TEST = "";
+let DURATA_MINUTI = 20;
+
+let nomeStudente = "";
+let domandeMischiate = [];
+let indiceCorrente = 0;
+let risposteDate = [];
+let secondiRimasti = 0;
+let scadenzaLocaleMs = null;
+let timerInterval = null;
+let testInviato = false;
+
+const CHIAVE_SALVATAGGIO = "test_silp_stato";
+
+// ============================================================
+// CARICAMENTO DEL TEST ATTIVO
+// Prima leggo il puntatore stato/attivo, che il pannello admin
+// aggiorna quando si attiva o disattiva un test, poi il documento
+// del test vero e proprio. Due letture invece di una query, così
+// non serve permettere al pubblico di elencare l'intera collezione
+// "test", che resta riservata all'admin.
+// ============================================================
+function mostraNessunTestAttivo() {
+  document.getElementById("schermata-caricamento").classList.add("nascosto");
+  document.getElementById("schermata-nessun-test").classList.remove("nascosto");
+}
+
+async function caricaTestAttivo() {
+  try {
+    const puntatore = await getDoc(doc(db, "stato", "attivo"));
+    const idAttivo = puntatore.exists() ? puntatore.data().idTest : null;
+    if (!idAttivo) { mostraNessunTestAttivo(); return; }
+
+    const istantaneaTest = await getDoc(doc(db, "test", idAttivo));
+    if (!istantaneaTest.exists() || istantaneaTest.data().attivo !== true) {
+      mostraNessunTestAttivo();
+      return;
+    }
+
+    const dati = istantaneaTest.data();
+    ID_TEST = idAttivo;
+    PIN_CORRETTO = dati.pin || "";
+    DOMANDE = dati.domande || [];
+    STUDENTI = dati.studenti || [];
+    DURATA_MINUTI = dati.durataMinuti || 0;
+
+    TEST_HA_PERID = STUDENTI.length > 0 && STUDENTI.every(n => /\(\d+\)\s*$/.test(n));
+    if (!TEST_HA_PERID) {
+      document.getElementById("riga-campo-perid").classList.add("nascosto");
+    }
+
+    document.getElementById("testo-num-domande").textContent = DOMANDE.length + " domande";
+    if (DURATA_MINUTI > 0) {
+      document.getElementById("testo-durata").innerHTML = 'Il test inizierà per tutti nello stesso momento, quando lo dirà il responsabile in aula. Avrai a disposizione <strong>' + DURATA_MINUTI + ' minuti</strong> da quel momento.';
+      document.getElementById("testo-scadenza").classList.remove("nascosto");
+    } else {
+      document.getElementById("testo-durata").textContent = "Il test inizierà per tutti nello stesso momento, quando lo dirà il responsabile in aula. Non c'è un limite di tempo per completarlo.";
+      document.getElementById("testo-o-scade").textContent = "";
+      document.getElementById("testo-scadenza").classList.add("nascosto");
+    }
+
+    document.getElementById("schermata-caricamento").classList.add("nascosto");
+
+    // Ripresa automatica: se in locale c'è già un tentativo salvato,
+    // non ancora inviato, per QUESTO stesso test, salto del tutto la
+    // schermata di identificazione e riparto direttamente da dove
+    // era rimasto, senza chiedere di nuovo nome, PERID e PIN. Prima
+    // la ripresa dipendeva dal reinserire un nome che combaciasse
+    // esattamente: ora basta essere sullo stesso dispositivo.
+    const salvato = caricaSalvataggio();
+    if (salvato && salvato.idTest === ID_TEST && salvato.nome && !salvato.inviato) {
+      nomeStudente = salvato.nome;
+      document.getElementById("schermata-istruzioni").classList.remove("nascosto");
+      avviaOppureRiprendi();
+      return;
+    }
+
+    document.getElementById("schermata-id").classList.remove("nascosto");
+  } catch (errore) {
+    mostraNessunTestAttivo();
+  }
+}
+caricaTestAttivo();
+
+// ============================================================
+// UTILITY
+// ============================================================
+function mischia(array) {
+  const copia = [...array];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+function normalizza(testo) {
+  return testo.trim().toLowerCase();
+}
+
+// ============================================================
+// SCHERMATA 1: AUTOCOMPLETAMENTO NOME
+// ============================================================
+const campoNome = document.getElementById("campo-nome");
+const listaSuggerimenti = document.getElementById("lista-suggerimenti");
+let indiceAttivo = -1;
+let nominativoSelezionato = "";
+
+function nomeSenzaPerid(nome) {
+  return nome.replace(/\s*\(\d+\)\s*$/, "").trim();
+}
+
+function testoVisualizzato(nome) {
+  const base = nomeSenzaPerid(nome);
+  const eOmonimo = STUDENTI.filter(n => normalizza(nomeSenzaPerid(n)) === normalizza(base)).length > 1;
+  if (!eOmonimo) return base;
+  const corrispondenza = nome.match(/\((\d+)\)\s*$/);
+  const ultimeCifre = corrispondenza ? corrispondenza[1].slice(-3) : "";
+  return base + (ultimeCifre ? " (..." + ultimeCifre + ")" : "");
+}
+
+campoNome.addEventListener("input", () => {
+  const valore = normalizza(campoNome.value);
+  listaSuggerimenti.innerHTML = "";
+  indiceAttivo = -1;
+  nominativoSelezionato = "";
+  if (valore.length < 2) {
+    listaSuggerimenti.style.display = "none";
+    return;
+  }
+  const corrispondenze = STUDENTI.filter(nome => normalizza(nomeSenzaPerid(nome)).includes(valore)).slice(0, 8);
+  if (corrispondenze.length === 0) {
+    listaSuggerimenti.style.display = "none";
+    return;
+  }
+  corrispondenze.forEach(nome => {
+    const voce = document.createElement("div");
+    const testo = testoVisualizzato(nome);
+    voce.textContent = testo;
+    voce.addEventListener("click", () => {
+      campoNome.value = testo;
+      nominativoSelezionato = nome;
+      listaSuggerimenti.style.display = "none";
+    });
+    listaSuggerimenti.appendChild(voce);
+  });
+  listaSuggerimenti.style.display = "block";
+});
+
+campoNome.addEventListener("keydown", (e) => {
+  const voci = listaSuggerimenti.querySelectorAll("div");
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    indiceAttivo = Math.min(indiceAttivo + 1, voci.length - 1);
+    aggiornaAttivo(voci);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    indiceAttivo = Math.max(indiceAttivo - 1, 0);
+    aggiornaAttivo(voci);
+  } else if (e.key === "Enter" && indiceAttivo >= 0) {
+    e.preventDefault();
+    voci[indiceAttivo].click();
+  }
+});
+
+function aggiornaAttivo(voci) {
+  voci.forEach(v => v.classList.remove("attivo"));
+  if (voci[indiceAttivo]) {
+    voci[indiceAttivo].classList.add("attivo");
+    voci[indiceAttivo].scrollIntoView({ block: "nearest" });
+  }
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".autocomplete-wrapper")) {
+    listaSuggerimenti.style.display = "none";
+  }
+});
+
+// ============================================================
+// SCHERMATA 1 -> 2: VALIDAZIONE NOME + PIN
+// ============================================================
+document.getElementById("btn-inizia").addEventListener("click", () => {
+  const nomeInserito = campoNome.value.trim();
+  const peridInserito = document.getElementById("campo-perid").value.trim();
+  const pinInserito = document.getElementById("campo-pin").value.trim();
+  const erroreEl = document.getElementById("errore-id");
+  const bottoneInizia = document.getElementById("btn-inizia");
+
+  let nominativoCompleto = nominativoSelezionato && normalizza(testoVisualizzato(nominativoSelezionato)) === normalizza(nomeInserito)
+    ? nominativoSelezionato
+    : STUDENTI.find(n => normalizza(nomeSenzaPerid(n)) === normalizza(nomeInserito.replace(/\s*\([^)]*\)\s*$/, "").trim()));
+
+  if (!nominativoCompleto) {
+    erroreEl.textContent = "Nome non trovato nell'elenco. Seleziona il tuo nome dai suggerimenti.";
+    erroreEl.style.display = "block";
+    return;
+  }
+
+  if (TEST_HA_PERID) {
+    const corrispondenzaPerid = nominativoCompleto.match(/\((\d+)\)\s*$/);
+    const peridAtteso = corrispondenzaPerid ? corrispondenzaPerid[1] : "";
+    if (!peridAtteso) {
+      erroreEl.textContent = "Non riesco a verificare il PERID per questo nominativo. Rivolgiti al responsabile in aula.";
+      erroreEl.style.display = "block";
+      return;
+    }
+    if (peridInserito !== peridAtteso) {
+      erroreEl.textContent = "Il PERID inserito non corrisponde al nominativo scelto. Controlla di aver selezionato il tuo nome giusto.";
+      erroreEl.style.display = "block";
+      return;
+    }
+  }
+
+  if (pinInserito !== String(PIN_CORRETTO).trim()) {
+    erroreEl.textContent = "PIN non corretto. Chiedi conferma al responsabile in aula.";
+    erroreEl.style.display = "block";
+    return;
+  }
+
+  erroreEl.style.display = "none";
+  bottoneInizia.disabled = true;
+  bottoneInizia.textContent = "Verifica in corso...";
+
+  // Controllo se questo nominativo ha già un risultato valido
+  // (non annullato) per questo test, interrogando Firestore
+  // direttamente invece di passare da uno script intermedio.
+  getDocs(query(riferimentoRisultati(), where("nome", "==", nominativoCompleto), where("annullato", "==", false)))
+    .then(istantanea => {
+      bottoneInizia.disabled = false;
+      bottoneInizia.textContent = "Inizia il test";
+
+      if (!istantanea.empty) {
+        document.getElementById("schermata-id").classList.add("nascosto");
+        document.getElementById("schermata-gia-completato").classList.remove("nascosto");
+        return;
+      }
+
+      nomeStudente = nominativoCompleto;
+      document.getElementById("schermata-id").classList.add("nascosto");
+      document.getElementById("schermata-istruzioni").classList.remove("nascosto");
+    })
+    .catch(() => {
+      // Se il controllo fallisce per problemi di rete, lasciamo comunque
+      // procedere lo studente: il blocco definitivo avviene comunque al
+      // momento dell'invio finale, garantito dal database stesso.
+      bottoneInizia.disabled = false;
+      bottoneInizia.textContent = "Inizia il test";
+      nomeStudente = nominativoCompleto;
+      document.getElementById("schermata-id").classList.add("nascosto");
+      document.getElementById("schermata-istruzioni").classList.remove("nascosto");
+    });
+});
+
+// ============================================================
+// SCHERMATA 2 -> 2B o 3: AVVIO TEST
+// ============================================================
+let pollingAttesaInterval = null;
+let pingIntervalId = null;
+let statoPresenzaAttuale = null;
+let avviatoTimestampSessione = null;
+let pingSospeso = false;
+let annullaOsservatoreTest = null;
+let statoQuizAvviatoLocalmente = false;
+let pollingTestAttivoInterval = null;
+
+function inviaPing() {
+  if (pingSospeso) {
+    clearInterval(pingIntervalId);
+    return;
+  }
+  scriviPresenza(statoPresenzaAttuale);
+}
+
+function avviaPing(statoIniziale) {
+  statoPresenzaAttuale = statoIniziale;
+  if (pingIntervalId) clearInterval(pingIntervalId);
+  pingIntervalId = setInterval(inviaPing, 25000);
+}
+
+document.getElementById("btn-avvia").addEventListener("click", () => {
+  const salvato = caricaSalvataggio();
+  const staGiaRiprendendo = salvato && salvato.nome === nomeStudente && !salvato.inviato;
+
+  if (!staGiaRiprendendo) {
+    getDoc(riferimentoTest())
+      .then(istantanea => {
+        const dati = istantanea.exists() ? istantanea.data() : {};
+        if (dati.avviatoTimestamp) {
+          document.getElementById("schermata-istruzioni").classList.add("nascosto");
+          document.getElementById("schermata-gia-iniziato").classList.remove("nascosto");
+          return;
+        }
+        // Controllo se qualcun altro risulta già connesso in questo
+        // momento con lo stesso nome. La novità rispetto a prima: se
+        // la presenza trovata porta lo stesso identificativo di
+        // sessione di questo dispositivo, sono io stesso che sto
+        // rientrando (per esempio dopo un F5 che ha comunque perdurato
+        // fino a qui), non un'altra persona, quindi lascio passare
+        // senza mostrare "nome già in uso".
+        const sogliaPresenzaFrescaMs = 70000;
+        getDoc(riferimentoPresenza(nomeStudente))
+          .then(istantaneaPresenza => {
+            if (istantaneaPresenza.exists()) {
+              const datiPresenza = istantaneaPresenza.data();
+              const fresca = datiPresenza.ultimoAggiornamento &&
+                (Date.now() - Number(datiPresenza.ultimoAggiornamento)) <= sogliaPresenzaFrescaMs;
+              const eQuestoStessoDispositivo = datiPresenza.sessione && datiPresenza.sessione === idSessioneDispositivo();
+              if (fresca && !eQuestoStessoDispositivo) {
+                document.getElementById("schermata-istruzioni").classList.add("nascosto");
+                document.getElementById("schermata-nome-in-uso").classList.remove("nascosto");
+                return;
+              }
+            }
+            entraInSalaDAttesa();
+          })
+          .catch(() => entraInSalaDAttesa());
+      })
+      .catch(() => {
+        entraInSalaDAttesa();
+      });
+    return;
+  }
+
+  avviaOppureRiprendi();
+});
+
+function entraInSalaDAttesa() {
+  document.getElementById("schermata-istruzioni").classList.add("nascosto");
+  document.getElementById("nome-allievo-attesa").textContent = nomeSenzaPerid(nomeStudente);
+  document.getElementById("schermata-attesa").classList.remove("nascosto");
+
+  avviaPing("attesa");
+  scriviPresenza("attesa");
+  avviaControlloTestAttivo();
+  osservaStatoTest();
+}
+
+// Rete di sicurezza per il caso, raro, in cui il test venga
+// disattivato del tutto mentre l'allievo sta rispondendo, e
+// l'osservatore in tempo reale non se ne accorga per un problema di
+// connessione. Legge direttamente il documento test ogni 20 secondi,
+// senza passare più da nessuno script intermedio.
+function avviaControlloTestAttivo() {
+  if (pollingTestAttivoInterval) return;
+  pollingTestAttivoInterval = setInterval(() => {
+    if (testInviato) {
+      clearInterval(pollingTestAttivoInterval);
+      return;
+    }
+    getDoc(riferimentoTest())
+      .then(istantanea => {
+        const dati = istantanea.exists() ? istantanea.data() : {};
+        if (dati.attivo !== true) {
+          clearInterval(timerInterval);
+          clearInterval(pollingTestAttivoInterval);
+          bloccaTestPerDisattivazione();
+        }
+      })
+      .catch(() => {});
+  }, 20000);
+}
+
+function bloccaTestPerDisattivazione() {
+  if (testInviato) return;
+  testInviato = true;
+  clearInterval(pollingAttesaInterval);
+  clearInterval(pollingTestAttivoInterval);
+  if (typeof timerInterval !== "undefined") clearInterval(timerInterval);
+  if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+  cancellaSalvataggio();
+
+  statoPresenzaAttuale = "bloccato";
+  scriviPresenza("bloccato");
+
+  document.getElementById("schermata-attesa").classList.add("nascosto");
+  document.getElementById("schermata-quiz").classList.add("nascosto");
+  document.getElementById("schermata-bloccato").classList.remove("nascosto");
+}
+
+document.getElementById("btn-ricomincia").addEventListener("click", () => {
+  window.location.reload();
+});
+
+function osservaStatoTest() {
+  if (annullaOsservatoreTest) return;
+  annullaOsservatoreTest = onSnapshot(riferimentoTest(), (istantanea) => {
+    mostraBannerConnessione(false);
+    gestisciCambiamentoStatoTest(istantanea.exists() ? istantanea.data() : {});
+  }, () => {
+    mostraBannerConnessione(true);
+  });
+}
+
+function gestisciCambiamentoStatoTest(dati) {
+  if (testInviato) return;
+
+  // Se l'admin disattiva del tutto il test (non solo il turno)
+  // mentre questo dispositivo sta osservando, lo stesso documento lo
+  // segnala subito con attivo=false, senza dover aspettare i 20
+  // secondi del controllo di sicurezza.
+  if (dati.attivo === false) {
+    clearInterval(timerInterval);
+    bloccaTestPerDisattivazione();
+    return;
+  }
+
+  const avviato = !!dati.avviatoTimestamp;
+  const inPausa = !!dati.pausaTimestamp;
+  const terminato = !!dati.terminatoTimestamp;
+
+  if (!statoQuizAvviatoLocalmente) {
+    if (!avviato) return;
+
+    clearInterval(pollingAttesaInterval);
+    statoPresenzaAttuale = "in_corso";
+    scriviPresenza("in_corso");
+    document.getElementById("schermata-attesa").classList.add("nascosto");
+
+    avviatoTimestampSessione = dati.avviatoTimestamp;
+
+    let secondiIniziali;
+    if (inPausa && typeof dati.secondiRimastiAllaPausa === "number") {
+      secondiIniziali = dati.secondiRimastiAllaPausa;
+    } else {
+      const oraAttuale = Date.now();
+      const msTrascorsiEffettivi = (oraAttuale - Number(dati.avviatoTimestamp)) - Number(dati.totalePausaMs || 0);
+      secondiIniziali = Math.max(DURATA_MINUTI * 60 - Math.floor(msTrascorsiEffettivi / 1000), 0);
+    }
+    avviaOppureRiprendi(secondiIniziali);
+    return;
+  }
+
+  if (terminato) {
+    clearInterval(timerInterval);
+    inviaTest(true);
+    return;
+  }
+
+  const avviatoAttualeConfronto = dati.avviatoTimestamp ? String(dati.avviatoTimestamp) : "";
+  const avviatoSessioneConfronto = avviatoTimestampSessione ? String(avviatoTimestampSessione) : "";
+  if (avviatoSessioneConfronto && avviatoAttualeConfronto !== avviatoSessioneConfronto) {
+    clearInterval(timerInterval);
+    inviaTest(true);
+    return;
+  }
+
+  if (inPausa && !inPausaAttuale) {
+    inPausaAttuale = true;
+    clearInterval(timerInterval);
+    if (typeof dati.secondiRimastiAllaPausa === "number") {
+      secondiRimasti = dati.secondiRimastiAllaPausa;
+    }
+    salvaStato();
+    document.getElementById("schermata-quiz").classList.add("nascosto");
+    document.getElementById("schermata-pausa").classList.remove("nascosto");
+    return;
+  }
+
+  if (!inPausa && inPausaAttuale) {
+    inPausaAttuale = false;
+    document.getElementById("schermata-pausa").classList.add("nascosto");
+    document.getElementById("schermata-quiz").classList.remove("nascosto");
+    if (DURATA_MINUTI > 0) avviaTimer();
+  }
+}
+
+function avviaOppureRiprendi(secondiForzati) {
+  statoQuizAvviatoLocalmente = true;
+  osservaStatoTest();
+  avviaControlloTestAttivo();
+
+  const salvato = caricaSalvataggio();
+  if (salvato && salvato.nome === nomeStudente && salvato.idTest === ID_TEST && !salvato.inviato) {
+    domandeMischiate = salvato.domandeMischiate;
+    indiceCorrente = salvato.indiceCorrente;
+    risposteDate = salvato.risposteDate;
+    secondiRimasti = secondiForzati !== undefined ? secondiForzati : salvato.secondiRimasti;
+    avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
+  } else {
+    domandeMischiate = mischia(DOMANDE).map(d => {
+      const opzioniConIndice = d.opzioni.map((testo, i) => ({ testo, corretta: i === d.corretta }));
+      return {
+        id: d.id,
+        testo: d.testo,
+        opzioni: mischia(opzioniConIndice)
+      };
+    });
+    indiceCorrente = 0;
+    risposteDate = new Array(domandeMischiate.length).fill(null);
+    secondiRimasti = secondiForzati !== undefined ? secondiForzati : (DURATA_MINUTI > 0 ? DURATA_MINUTI * 60 : 0);
+    salvaStato();
+  }
+
+  document.getElementById("schermata-istruzioni").classList.add("nascosto");
+  document.getElementById("schermata-pausa").classList.add("nascosto");
+  document.getElementById("schermata-quiz").classList.remove("nascosto");
+
+  document.getElementById("nome-allievo-quiz").textContent = nomeStudente;
+  document.getElementById("nome-allievo-quiz").classList.remove("nascosto");
+
+  if (DURATA_MINUTI > 0) {
+    document.getElementById("timer").classList.remove("nascosto");
+    avviaTimer();
+  } else {
+    document.getElementById("timer").classList.add("nascosto");
+  }
+  mostraDomanda();
+}
+
+// ============================================================
+// SALVATAGGIO LOCALE
+// In più rispetto a prima: viene salvato anche l'ID del test, così
+// al ricaricamento la ripresa automatica sa con certezza a quale
+// test appartiene il salvataggio, invece di doverlo dedurre solo
+// dal nome.
+// ============================================================
+function salvaStato() {
+  const stato = {
+    nome: nomeStudente,
+    idTest: ID_TEST,
+    domandeMischiate,
+    indiceCorrente,
+    risposteDate,
+    secondiRimasti,
+    inviato: testInviato,
+    avviatoTimestamp: avviatoTimestampSessione
+  };
+  try {
+    localStorage.setItem(CHIAVE_SALVATAGGIO, JSON.stringify(stato));
+  } catch (e) {
+    console.error("Impossibile salvare lo stato locale", e);
+  }
+}
+
+function caricaSalvataggio() {
+  try {
+    const dato = localStorage.getItem(CHIAVE_SALVATAGGIO);
+    return dato ? JSON.parse(dato) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function cancellaSalvataggio() {
+  try {
+    localStorage.removeItem(CHIAVE_SALVATAGGIO);
+  } catch (e) {}
+}
+
+// ============================================================
+// TIMER
+// ============================================================
+function avviaTimer() {
+  scadenzaLocaleMs = Date.now() + secondiRimasti * 1000;
+  aggiornaDisplayTimer();
+  timerInterval = setInterval(() => {
+    secondiRimasti = Math.max(Math.round((scadenzaLocaleMs - Date.now()) / 1000), 0);
+    aggiornaDisplayTimer();
+    salvaStato();
+    if (secondiRimasti <= 0) {
+      clearInterval(timerInterval);
+      inviaTest(true);
+    }
+  }, 1000);
+}
+
+let inPausaAttuale = false;
+
+function esadecimaleARgb(esadecimale) {
+  const pulito = esadecimale.replace("#", "");
+  return {
+    r: parseInt(pulito.substring(0, 2), 16),
+    g: parseInt(pulito.substring(2, 4), 16),
+    b: parseInt(pulito.substring(4, 6), 16)
+  };
+}
+function interpolaColore(colore1, colore2, t) {
+  const c1 = esadecimaleARgb(colore1);
+  const c2 = esadecimaleARgb(colore2);
+  const r = Math.round(c1.r + (c2.r - c1.r) * t);
+  const g = Math.round(c1.g + (c2.g - c1.g) * t);
+  const b = Math.round(c1.b + (c2.b - c1.b) * t);
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+function coloreTimerDaFrazione(frazione) {
+  if (frazione <= 0.10) return "#e63946";
+  if (frazione <= 0.5) {
+    const t = (0.5 - frazione) / (0.5 - 0.10);
+    return interpolaColore("#c9a04a", "#e63946", t);
+  }
+  const t = Math.min((1 - frazione) / (1 - 0.5), 1);
+  return interpolaColore("#1d3557", "#c9a04a", t);
+}
+
+function aggiornaDisplayTimer() {
+  const el = document.getElementById("timer");
+  const minuti = Math.floor(secondiRimasti / 60);
+  const secondi = secondiRimasti % 60;
+  el.textContent = `${String(minuti).padStart(2,"0")}:${String(secondi).padStart(2,"0")}`;
+
+  const durataTotaleSecondi = DURATA_MINUTI * 60;
+  if (durataTotaleSecondi > 0) {
+    const frazione = secondiRimasti / durataTotaleSecondi;
+    el.style.backgroundColor = coloreTimerDaFrazione(frazione);
+    if (frazione <= 0.10) {
+      el.classList.add("timer-critico");
+    } else {
+      el.classList.remove("timer-critico");
+    }
+  }
+}
+
+// ============================================================
+// VISUALIZZAZIONE DOMANDE
+// ============================================================
+function mostraDomanda() {
+  const domanda = domandeMischiate[indiceCorrente];
+  document.getElementById("numero-domanda").textContent = `Domanda ${indiceCorrente + 1} di ${domandeMischiate.length}`;
+  document.getElementById("testo-domanda").textContent = domanda.testo;
+  document.getElementById("errore-risposta-obbligatoria").style.display = "none";
+
+  const percentuale = ((indiceCorrente) / domandeMischiate.length) * 100;
+  document.getElementById("barra-interna").style.width = percentuale + "%";
+
+  const contenitore = document.getElementById("contenitore-opzioni");
+  contenitore.innerHTML = "";
+
+  domanda.opzioni.forEach((opzione, i) => {
+    const div = document.createElement("div");
+    div.className = "opzione";
+    if (risposteDate[indiceCorrente] === i) div.classList.add("selezionata");
+    div.textContent = opzione.testo;
+    div.addEventListener("click", () => {
+      risposteDate[indiceCorrente] = i;
+      salvaStato();
+      mostraDomanda();
+    });
+    contenitore.appendChild(div);
+  });
+
+  document.getElementById("btn-indietro").disabled = indiceCorrente === 0;
+  document.getElementById("btn-avanti").textContent =
+    indiceCorrente === domandeMischiate.length - 1 ? "Termina e invia" : "Avanti";
+}
+
+document.getElementById("btn-indietro").addEventListener("click", () => {
+  if (indiceCorrente > 0) {
+    indiceCorrente--;
+    salvaStato();
+    mostraDomanda();
+  }
+});
+
+document.getElementById("btn-avanti").addEventListener("click", () => {
+  if (risposteDate[indiceCorrente] === null) {
+    document.getElementById("errore-risposta-obbligatoria").style.display = "block";
+    return;
+  }
+  if (indiceCorrente < domandeMischiate.length - 1) {
+    indiceCorrente++;
+    salvaStato();
+    mostraDomanda();
+  } else {
+    inviaTest(false);
+  }
+});
+
+// ============================================================
+// INVIO RISULTATI
+// La chiave del documento è il nome normalizzato per il primo
+// tentativo, con un suffisso "__tN" dal secondo tentativo in poi
+// (concesso dall'admin con "Nuovo tentativo"). Il numero di
+// tentativo si calcola contando quanti documenti risultano già
+// presenti per questo nominativo, tentativi annullati compresi.
+// La scrittura vera è sempre e solo una creazione: se per una
+// corsa rarissima due invii arrivassero nello stesso istante sulla
+// stessa chiave, il secondo diventerebbe un aggiornamento agli
+// occhi di Firestore, e le regole vietano al pubblico di
+// aggiornare un risultato, quindi viene rifiutato automaticamente,
+// niente lock manuale da gestire.
+// ============================================================
+function inviaTest(perScadenzaTempo) {
+  if (testInviato) return;
+  testInviato = true;
+  clearInterval(timerInterval);
+
+  document.getElementById("schermata-quiz").classList.add("nascosto");
+  document.getElementById("schermata-invio").classList.remove("nascosto");
+
+  let punteggio = 0;
+  const risposte = domandeMischiate.map((domanda, i) => {
+    const indiceRisposta = risposteDate[i];
+    const rispostaTesto = indiceRisposta !== null ? domanda.opzioni[indiceRisposta].testo : "";
+    const corretta = indiceRisposta !== null && domanda.opzioni[indiceRisposta].corretta;
+    if (corretta) punteggio++;
+    return {
+      id: domanda.id,
+      testo: domanda.testo,
+      risposta: rispostaTesto,
+      corretta: corretta ? "SI" : "NO"
+    };
+  });
+
+  const payloadBase = {
+    nome: nomeStudente,
+    timestamp: new Date().toLocaleString("it-IT"),
+    punteggio: punteggio,
+    totaleDomande: domandeMischiate.length,
+    scadutoPerTempo: perScadenzaTempo ? "SI" : "NO",
+    risposte: risposte,
+    annullato: false
+  };
+
+  provaInvio(payloadBase, 0);
+}
+
+function provaInvio(payloadBase, tentativo) {
+  if (tentativo > 0) {
+    document.getElementById("messaggio-stato-invio").textContent =
+      "Connessione debole, nuovo tentativo in corso (" + (tentativo + 1) + ")...";
+  }
+
+  // Ricalcolo il numero di tentativo e la chiave del documento a ogni
+  // riprova, non solo alla prima volta: se un tentativo precedente
+  // fosse comunque riuscito nonostante un errore apparente di rete,
+  // questo evita di provare a scrivere due volte sulla stessa chiave.
+  getDocs(query(riferimentoRisultati(), where("nome", "==", payloadBase.nome)))
+    .then(istantaneaEsistenti => {
+      const numeroTentativo = istantaneaEsistenti.size + 1;
+      const chiave = numeroTentativo === 1 ? normalizza(payloadBase.nome) : normalizza(payloadBase.nome) + "__t" + numeroTentativo;
+      const payload = { ...payloadBase, numeroTentativo };
+
+      return setDoc(doc(db, "test", ID_TEST, "risultati", chiave), payload);
+    })
+    .then(() => {
+      cancellaSalvataggio();
+      pingSospeso = true;
+      if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+      if (pollingTestAttivoInterval) { clearInterval(pollingTestAttivoInterval); pollingTestAttivoInterval = null; }
+      document.getElementById("schermata-invio").classList.add("nascosto");
+      document.getElementById("schermata-fine").classList.remove("nascosto");
+    })
+    .catch((errore) => {
+      // Se Firestore rifiuta la scrittura perché sta cercando di
+      // aggiornare un documento già esistente (permission-denied), è
+      // il segnale che un invio precedente, magari apparentemente
+      // fallito per un problema di rete, è comunque andato a buon
+      // fine: lo trattiamo come un successo, non come un motivo per
+      // continuare a riprovare all'infinito.
+      if (errore && errore.code === "permission-denied") {
+        cancellaSalvataggio();
+        pingSospeso = true;
+        if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+        if (pollingTestAttivoInterval) { clearInterval(pollingTestAttivoInterval); pollingTestAttivoInterval = null; }
+        document.getElementById("schermata-invio").classList.add("nascosto");
+        document.getElementById("schermata-fine").classList.remove("nascosto");
+        return;
+      }
+
+      console.error("Errore di invio, tentativo " + tentativo, errore);
+      document.getElementById("messaggio-stato-invio").textContent =
+        "Connessione debole, nuovo tentativo in corso (" + (tentativo + 2) + ")...";
+
+      if (tentativo === 0 || tentativo % 3 === 0) {
+        registraAvvisoClient("INVIO RISULTATI", errore && errore.message ? errore.message : String(errore), tentativo);
+      }
+
+      const attesa = Math.min(5000 + tentativo * 3000, 30000) + Math.random() * 2000;
+      setTimeout(() => provaInvio(payloadBase, tentativo + 1), attesa);
+    });
+}
+
+// Manda un avviso leggero alla collezione "log" su Firestore, senza
+// mai bloccare nulla se anche questa scrittura fallisse: serve solo
+// a lasciare una traccia da controllare con calma dopo una prova o
+// una lezione. Il pubblico può solo creare voci di log, mai
+// leggerle né modificarle.
+function registraAvvisoClient(categoria, messaggio, tentativo) {
+  setDoc(doc(collection(db, "log")), {
+    tipo: "AVVISO CLIENT",
+    categoria: categoria,
+    messaggio: messaggio,
+    idTest: ID_TEST,
+    nome: nomeStudente,
+    tentativo: tentativo,
+    timestamp: new Date().toLocaleString("it-IT")
+  }).catch(() => {});
+}
+
+// ============================================================
+// AVVISO USCITA ACCIDENTALE
+// ============================================================
+window.addEventListener("beforeunload", (e) => {
+  if (!testInviato && domandeMischiate.length > 0) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+</script>
+
+</body>
+</html>
