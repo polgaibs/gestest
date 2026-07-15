@@ -1,0 +1,198 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========================================================
+    // REGOLE GESTEST, VERSIONE 2 (migrazione completa su Firestore)
+    //
+    // RETROCOMPATIBILI: le pagine della versione vecchia
+    // (polgaibs.github.io/test/) continuano a funzionare,
+    // perche' le scritture pubbliche dei campi di stato e la
+    // gestione delle presenze restano permesse come prima.
+    //
+    // NOVITA' rispetto alle regole precedenti:
+    // 1. La configurazione dei test (nome, pin, domande, allievi)
+    //    e' scrivibile solo da chi ha fatto login Google con una
+    //    email presente nella collezione "admin".
+    // 2. I risultati si scrivono solo in creazione (mai modifica
+    //    o cancellazione dal pubblico): il blocco dei doppi invii
+    //    e' garantito dal database stesso, un secondo invio sullo
+    //    stesso percorso viene rifiutato.
+    // 3. Eliminare un test non e' piu' permesso a chiunque.
+    // ========================================================
+
+    function autenticato() {
+      return request.auth != null;
+    }
+
+    // E' admin chi ha fatto login e la cui email compare come ID
+    // di un documento nella collezione "admin". La lista si
+    // gestisce dalla console Firebase, senza toccare il codice.
+    function emailAdmin() {
+      return autenticato()
+        && exists(/databases/$(database)/documents/admin/$(request.auth.token.email));
+    }
+
+    // I soli campi che le pagine senza login (locandina, quiz,
+    // e la versione vecchia del pannello) possono toccare sul
+    // documento del test.
+    function soloCampiStato(chiavi) {
+      return chiavi.hasOnly([
+        'avviatoTimestamp', 'pausaTimestamp', 'terminatoTimestamp',
+        'totalePausaMs', 'secondiRimastiAllaPausa'
+      ]);
+    }
+
+    // ------------------------------------------------------
+    // Lista degli amministratori autorizzati.
+    // Ogni documento ha come ID l'indirizzo email autorizzato.
+    // Si gestisce SOLO dalla console Firebase: nessuna pagina
+    // puo' aggiungere o togliere admin.
+    // ------------------------------------------------------
+    match /admin/{email} {
+      // Ognuno puo' verificare solo la propria posizione, utile
+      // al pannello per mostrare subito "accesso non autorizzato"
+      // a chi entra con un account Google non in lista.
+      allow get: if autenticato() && request.auth.token.email == email;
+      allow list, create, update, delete: if false;
+    }
+
+    // ------------------------------------------------------
+    // Puntatore al test attivo. Un solo documento, "stato/attivo",
+    // con dentro { idTest: "T..." } oppure { idTest: null }.
+    // Locandina e quiz lo leggono per sapere quale test caricare,
+    // senza dover elencare tutta la collezione dei test.
+    // ------------------------------------------------------
+    match /stato/{documento} {
+      allow read: if true;
+      allow write: if emailAdmin();
+    }
+
+    // ------------------------------------------------------
+    // I test, con configurazione e stato nello stesso documento.
+    // ------------------------------------------------------
+    match /test/{idTest} {
+
+      // Lettura del singolo documento aperta: il quiz e la
+      // locandina devono leggere domande, allievi, PIN e durata
+      // senza login, come oggi. L'elenco completo dei test,
+      // invece, lo vede solo il pannello admin.
+      allow get: if true;
+      allow list: if emailAdmin();
+
+      // Creazione: l'admin crea i test completi. Resta permessa
+      // al pubblico la creazione di documenti di PURO stato,
+      // perche' la versione vecchia fa setDoc con merge su
+      // documenti che sul database potrebbero non esistere ancora.
+      allow create: if emailAdmin()
+        || soloCampiStato(request.resource.data.keys());
+
+      // Aggiornamento: l'admin puo' tutto. Il pubblico puo'
+      // toccare solo i campi di stato (avvio, pausa, chiusura,
+      // azzeramento del turno), piu' il contatore "azzeramenti",
+      // ma quest'ultimo solo incrementandolo di 1 esatto, cosi'
+      // nessuno puo' azzerarlo o gonfiarlo a piacere.
+      allow update: if emailAdmin()
+        || (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'avviatoTimestamp', 'pausaTimestamp', 'terminatoTimestamp',
+              'totalePausaMs', 'secondiRimastiAllaPausa', 'azzeramenti'
+            ])
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['azzeramenti'])
+            || request.resource.data.azzeramenti
+               == resource.data.get('azzeramenti', 0) + 1
+          )
+        );
+
+      // Eliminare un test e' un'operazione da pannello admin.
+      // Prima era "allow delete: if true", un varco chiuso qui.
+      allow delete: if emailAdmin();
+
+      // ----------------------------------------------------
+      // Presenze: identiche a prima, aperte perche' gli allievi
+      // non hanno login. In piu' il campo facoltativo "sessione",
+      // l'identificativo per dispositivo che serve a distinguere
+      // "sono io che rientro" da "e' un altro con lo stesso nome".
+      // hasOnly accetta anche documenti senza quel campo, quindi
+      // la versione vecchia continua a scrivere senza problemi.
+      // ----------------------------------------------------
+      match /presenze/{nomePresenza} {
+        allow read: if true;
+        allow create, update: if request.resource.data.keys().hasOnly([
+          'nome', 'stato', 'ultimoAggiornamento', 'sessione'
+        ]);
+        // La cancellazione resta aperta: l'azzeramento del turno
+        // dalla locandina, che non ha login, svuota le presenze.
+        allow delete: if true;
+      }
+
+      // ----------------------------------------------------
+      // Risultati: la novita' piu' importante.
+      // Chiave del documento: nome normalizzato, con suffisso
+      // di tentativo dal secondo in poi (es. "rossi mario (12345)"
+      // e poi "rossi mario (12345)__t2").
+      //
+      // Il pubblico puo' SOLO creare, mai modificare o cancellare:
+      // un secondo invio sullo stesso percorso viene rifiutato dal
+      // database con permission denied, che il quiz interpreta
+      // come "duplicato". Niente lock, niente corse.
+      // ----------------------------------------------------
+      match /risultati/{chiaveRisultato} {
+
+        // Lettura aperta: serve al quiz per il controllo
+        // preventivo del nome e alla locandina per l'elenco di
+        // chi ha completato. NOTA: questo rende leggibili anche
+        // punteggi e risposte a chi sappia interrogare il
+        // database. Vedi la nota privacy nella guida.
+        allow read: if true;
+
+        // Creazione pubblica solo con la struttura esatta
+        // prevista, con annullato sempre false (nessun allievo
+        // puo' auto annullarsi) e numeroTentativo intero >= 1.
+        allow create: if emailAdmin()
+          || (
+            request.resource.data.keys().hasOnly([
+              'nome', 'timestamp', 'punteggio', 'totaleDomande',
+              'scadutoPerTempo', 'risposte', 'annullato',
+              'numeroTentativo'
+            ])
+            && request.resource.data.keys().hasAll([
+              'nome', 'punteggio', 'totaleDomande', 'annullato',
+              'numeroTentativo'
+            ])
+            && request.resource.data.annullato == false
+            && request.resource.data.numeroTentativo is int
+            && request.resource.data.numeroTentativo >= 1
+            && request.resource.data.punteggio is number
+            && request.resource.data.totaleDomande is number
+          );
+
+        // Modifica solo admin, e solo per il campo "annullato":
+        // e' il meccanismo di Nuovo tentativo, che marca il
+        // risultato precedente senza cancellarlo.
+        allow update: if emailAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['annullato']);
+
+        allow delete: if emailAdmin();
+      }
+    }
+
+    // ------------------------------------------------------
+    // Log: sostituisce le schede "Log errori" e "Tentativi
+    // doppio invio" del foglio. Il pubblico puo' solo aggiungere
+    // voci, mai leggerle, modificarle o toglierle.
+    // ------------------------------------------------------
+    match /log/{idLog} {
+      allow create: if request.resource.data.keys().hasOnly([
+        'tipo', 'categoria', 'messaggio', 'idTest', 'nome',
+        'tentativo', 'timestamp'
+      ]);
+      allow read, delete: if emailAdmin();
+      allow update: if false;
+    }
+  }
+}

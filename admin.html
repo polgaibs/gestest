@@ -1,0 +1,1604 @@
+<!-- ============================================================
+     PANNELLO ADMIN — admin.html (VERSIONE 2, tutto su Firestore)
+     Pagina statica, nessun Apps Script, nessun foglio Google.
+     Stessa interfaccia e stesso comportamento della versione
+     precedente, vista da chi la usa in aula. Login con account
+     Google al posto del login integrato di Apps Script.
+     ============================================================ -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pannello Admin — Test Scuola Pol.G.A.I.</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+  :root {
+    --blu: #1d3557;
+    --blu-chiaro: #457b9d;
+    --verde: #2a9d8f;
+    --rosso: #e63946;
+    --grigio: #f1f1f1;
+    --oro: #c9a04a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: var(--grigio);
+    color: #1d1d1d;
+  }
+  h1 { color: var(--blu); font-size: 1.4rem; }
+  .link-rapidi {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .link-rapidi a {
+    display: inline-block;
+    background: white;
+    border: 1px solid var(--blu);
+    color: var(--blu);
+    padding: 8px 14px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .link-rapidi a:hover { background: var(--grigio); }
+  h2 { color: var(--blu); font-size: 1.1rem; margin-top: 32px; }
+  .scheda {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  table { width: 100%; border-collapse: collapse; border: 1px solid #ccc; }
+  th, td { text-align: left; padding: 10px; border: 1px solid #ddd; }
+  thead th { border-bottom: 2px solid #bbb; }
+  th { color: var(--blu-chiaro); font-size: 0.85rem; text-transform: uppercase; }
+  .badge-attivo {
+    background: var(--verde); color: white; padding: 3px 10px;
+    border-radius: 12px; font-size: 0.8rem; font-weight: 600;
+    white-space: nowrap; display: inline-block;
+  }
+  .badge-inattivo {
+    background: #ddd; color: #666; padding: 3px 10px;
+    border-radius: 12px; font-size: 0.8rem;
+    white-space: nowrap; display: inline-block;
+  }
+  .badge-in-corso {
+    background: #c9a04a; color: var(--blu); padding: 3px 10px;
+    border-radius: 12px; font-size: 0.8rem; font-weight: 600;
+    display: inline-block; margin-top: 4px; white-space: nowrap;
+  }
+  .badge-in-pausa {
+    background: var(--blu-chiaro); color: white; padding: 3px 10px;
+    border-radius: 12px; font-size: 0.8rem; font-weight: 600;
+    display: inline-block; margin-top: 4px; white-space: nowrap;
+  }
+  .countdown-cell-admin {
+    display: inline-block;
+    color: white;
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 4px 10px;
+    border-radius: 8px;
+    letter-spacing: 1px;
+    transition: background-color 1s linear;
+  }
+  @keyframes lampeggiaCriticoAdmin {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .countdown-cell-admin.timer-critico-admin {
+    animation: lampeggiaCriticoAdmin 1s infinite;
+  }
+  button {
+    background: var(--blu); color: white; border: none;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 0.9rem; margin-right: 6px;
+  }
+  button:hover { background: var(--blu-chiaro); }
+  button.secondario { background: white; color: var(--blu); border: 1px solid var(--blu); }
+  button.pericolo { background: var(--rosso); }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+
+  .cella-azioni {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    align-items: center;
+  }
+  .cella-azioni button {
+    margin-right: 0;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+  .cella-azioni .separatore-azioni {
+    width: 1px;
+    align-self: stretch;
+    background: #ddd;
+    margin: 0 2px;
+  }
+  .cella-azioni .btn-sessione {
+    background: white;
+    color: var(--oro);
+    border: 1px solid var(--oro);
+  }
+  .cella-azioni .btn-sessione:hover { background: #fbf3e3; }
+  .cella-azioni .btn-sessione:disabled {
+    background: #f1f1f1; color: #aaa; border-color: #ccc;
+  }
+  label { display: block; font-weight: 600; color: var(--blu); margin: 14px 0 6px; }
+  input[type="text"] {
+    width: 100%; padding: 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 1rem;
+  }
+  select {
+    width: 100%; padding: 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 1rem; background: white;
+  }
+  input[type="file"] { margin-top: 4px; }
+  .riga-file {
+    background: var(--grigio); padding: 12px; border-radius: 6px; margin-top: 6px;
+  }
+  .esito-file { font-size: 0.85rem; margin-top: 6px; }
+  .esito-ok { color: var(--verde); }
+  .esito-errore { color: var(--rosso); }
+  .nascosto { display: none !important; }
+  .messaggio {
+    padding: 10px 14px; border-radius: 6px; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  }
+  #messaggio-globale {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3000;
+    max-width: min(90vw, 560px);
+  }
+  .messaggio-ok { background: #d4edda; color: #155724; }
+  .messaggio-errore { background: #f8d7da; color: #721c24; }
+  .caricamento { text-align: center; padding: 40px; color: #888; }
+  .editor-manuale {
+    margin-top: 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 14px;
+    max-height: 620px;
+    overflow-y: auto;
+    background: var(--grigio);
+  }
+  .riga-editor-domanda {
+    background: white;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 10px;
+    border: 1px solid #e2e2e2;
+  }
+  .riga-editor-domanda .intestazione-riga {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .riga-editor-domanda .numero-riga { font-weight: 700; color: var(--blu-chiaro); font-size: 0.85rem; }
+  .riga-editor-domanda textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    resize: vertical;
+    min-height: 40px;
+    margin-bottom: 8px;
+    font-family: inherit;
+  }
+  .riga-opzione-editor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .riga-opzione-editor input[type="radio"] { width: auto; flex-shrink: 0; }
+  .riga-opzione-editor input[type="text"] {
+    flex: 1;
+    padding: 7px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.88rem;
+  }
+  .riga-opzione-editor label {
+    margin: 0;
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: #666;
+    flex-shrink: 0;
+    width: 60px;
+  }
+  .tabella-editor-allievi {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .tabella-editor-allievi th {
+    position: sticky;
+    top: 0;
+    background: var(--grigio);
+    text-align: left;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+    color: var(--blu-chiaro);
+    text-transform: uppercase;
+    border-bottom: 2px solid #ddd;
+  }
+  .tabella-editor-allievi td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #eee;
+  }
+  .tabella-editor-allievi td:nth-child(1) { width: 32%; }
+  .tabella-editor-allievi td:nth-child(2) { width: 38%; }
+  .tabella-editor-allievi td:nth-child(3) { width: 20%; }
+  .tabella-editor-allievi td:nth-child(4) { width: 10%; }
+  .tabella-editor-allievi input[type="text"] {
+    width: 100%;
+    padding: 6px 7px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 0.86rem;
+  }
+  .btn-rimuovi-riga {
+    background: var(--rosso);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    cursor: pointer;
+    font-weight: 700;
+    padding: 0;
+    margin: 0;
+  }
+  .btn-aggiungi-riga {
+    background: var(--verde);
+    margin-top: 10px;
+  }
+
+  /* ---- Schermata di login, nuova in questa versione ---- */
+  #schermata-login {
+    max-width: 420px;
+    margin: 12vh auto 0;
+    text-align: center;
+  }
+  #schermata-login .scheda { padding: 32px 28px; }
+  #schermata-login p { color: #555; line-height: 1.5; }
+  .btn-google {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: white;
+    color: #1d1d1d;
+    border: 1px solid #ccc;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  .btn-google:hover { background: var(--grigio); }
+  .riquadro-non-autorizzato {
+    background: #f8d7da; color: #721c24; padding: 12px 14px;
+    border-radius: 6px; margin-top: 16px; font-size: 0.9rem;
+  }
+  .barra-utente {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    color: #555;
+  }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2, tutto Firestore</div>
+
+<div id="messaggio-globale"></div>
+
+<!-- ============================================================
+     SCHERMATA DI LOGIN, visibile solo prima dell'accesso o se
+     l'account con cui si accede non è tra quelli autorizzati.
+     ============================================================ -->
+<div id="schermata-login" class="nascosto">
+  <div class="scheda">
+    <h1 style="margin-top:0;">Pannello Admin</h1>
+    <p>Test Scuola Pol.G.A.I. Brescia</p>
+    <p>Accedi con l'account Google autorizzato per gestire i test.</p>
+    <button class="btn-google" id="btn-login-google">Accedi con Google</button>
+    <div id="riquadro-non-autorizzato" class="riquadro-non-autorizzato nascosto"></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     CONTENUTO PRINCIPALE, visibile solo dopo login con un
+     account autorizzato.
+     ============================================================ -->
+<div id="contenuto-principale" class="nascosto">
+
+<h1>Pannello Admin — Test Scuola Pol.G.A.I. Brescia</h1>
+
+<div class="link-rapidi">
+  <a href="quiz.html" target="_blank">Apri il Quiz (pagina allievi)</a>
+  <a href="index.html" target="_blank">Apri la Locandina (grande schermo)</a>
+  <span class="barra-utente">
+    <span id="testo-utente-loggato"></span>
+    <button class="secondario" id="btn-logout">Esci</button>
+  </span>
+</div>
+
+<div id="velo-azione-in-corso" class="nascosto" style="position:fixed; inset:0; background:rgba(255,255,255,0.4); z-index:2500; cursor:wait;"></div>
+
+<div class="scheda">
+  <h2 style="margin-top:0;">Test salvati</h2>
+  <p id="testo-ultimo-refresh" style="color:#888; font-size:0.85rem; margin-bottom:12px;"></p>
+  <div id="lista-caricamento" class="caricamento">Caricamento in corso...</div>
+  <table id="tabella-test" class="nascosto">
+    <thead>
+      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
+    </thead>
+    <tbody id="corpo-tabella-test"></tbody>
+  </table>
+  <p id="nessun-test" class="nascosto" style="color:#888;">Nessun test salvato. Creane uno nuovo qui sotto.</p>
+</div>
+
+<div class="scheda nascosto" id="scheda-nuovo-tentativo">
+  <h2 style="margin-top:0;">Permetti nuovo tentativo</h2>
+  <p id="testo-tentativo-nome-test" style="color:#666;"></p>
+  <p style="color:#666; font-size:0.9rem;">Seleziona uno o più allievi che devono rifare il test.</p>
+  <div id="lista-tentativo-allievi" class="editor-manuale" style="max-height:280px;"></div>
+  <p id="esito-tentativo" class="esito-file"></p>
+  <div style="margin-top:16px;">
+    <button id="btn-conferma-tentativo">Conferma</button>
+    <button class="secondario" id="btn-annulla-tentativo">Annulla</button>
+  </div>
+</div>
+
+<div class="scheda">
+  <button type="button" id="btn-toggle-form-test" class="secondario" style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center;">
+    <span id="titolo-form">Crea nuovo test</span>
+    <span id="freccia-form-test">▾</span>
+  </button>
+
+  <div id="corpo-form-test" class="nascosto" style="margin-top:16px;">
+    <label for="campo-nome-test">Nome del TEST</label>
+    <input type="text" id="campo-nome-test" placeholder="Es. Sicurezza sul lavoro giugno 2026">
+
+    <label for="campo-pin-test">PIN da comunicare in aula</label>
+    <input type="text" id="campo-pin-test" placeholder="Es. 4821">
+
+    <label for="campo-durata-test">Durata del test (minuti)</label>
+    <input type="text" id="campo-durata-test" placeholder="Es. 20" inputmode="numeric" value="20">
+    <div style="margin-top:10px;">
+      <label style="display:inline-flex; align-items:center; gap:8px; font-weight:400; margin:0;">
+        <input type="checkbox" id="campo-nessun-timer" style="width:auto;">
+        Nessun limite di tempo (disattiva il timer)
+      </label>
+    </div>
+
+    <label>File Excel domande (colonne: NR, DOMANDA, RISPOSTA A ESATTA, RISPOSTA B, RISPOSTA C)</label>
+    <div class="riga-file">
+      <input type="file" id="file-domande" accept=".xlsx,.xls">
+      <div id="esito-domande" class="esito-file"></div>
+    </div>
+    <button type="button" class="secondario" id="btn-toggle-domande-manuale" style="margin-top:10px;">Inserisci o modifica domande manualmente</button>
+    <button type="button" class="secondario" id="btn-scarica-domande" style="margin-top:10px;">Scarica domande (Excel)</button>
+    <div id="editor-domande-manuale" class="editor-manuale nascosto"></div>
+
+    <label>File Excel elenco allievi (colonne: PERID, COGNOME, NOME oppure solo COGNOME, NOME)</label>
+    <div class="riga-file">
+      <input type="file" id="file-studenti" accept=".xlsx,.xls">
+      <div id="esito-studenti" class="esito-file"></div>
+    </div>
+    <button type="button" class="secondario" id="btn-toggle-studenti-manuale" style="margin-top:10px;">Inserisci o modifica allievi manualmente</button>
+    <button type="button" class="secondario" id="btn-scarica-studenti" style="margin-top:10px;">Scarica allievi (Excel)</button>
+    <div id="editor-studenti-manuale" class="editor-manuale nascosto"></div>
+
+    <div style="margin-top:20px;">
+      <button id="btn-salva">Salva test</button>
+      <button class="secondario" id="btn-annulla-modifica" style="display:none;">Annulla modifica</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- fine #contenuto-principale -->
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
+  collection, query, where, writeBatch, serverTimestamp, increment
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+// ============================================================
+// FIREBASE, stesso progetto usato da locandina e quiz.
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyAZaljofnVGilyzRMVjqtTuq7zlFGoJUMQ",
+  authDomain: "gestest-1d7a3.firebaseapp.com",
+  projectId: "gestest-1d7a3",
+  storageBucket: "gestest-1d7a3.firebasestorage.app",
+  messagingSenderId: "653566650662",
+  appId: "1:653566650662:web:4c8eff3675d7dbf18df9e7"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+const auth = getAuth(appFirebase);
+const providerGoogle = new GoogleAuthProvider();
+
+function riferimentoTest(idTest) { return doc(db, "test", idTest); }
+function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
+function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
+function riferimentoStatoAttivo() { return doc(db, "stato", "attivo"); }
+
+// Normalizzazione del nome allievo, identica a quella usata dal
+// quiz, per ottenere sempre la stessa chiave di documento a
+// prescindere da maiuscole, accenti e spazi doppi.
+function normalizza(nome) {
+  return (nome || "").toString().trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
+document.getElementById("btn-login-google").addEventListener("click", () => {
+  signInWithPopup(auth, providerGoogle).catch(errore => {
+    document.getElementById("riquadro-non-autorizzato").classList.remove("nascosto");
+    document.getElementById("riquadro-non-autorizzato").textContent =
+      "Accesso non riuscito: " + (errore && errore.message ? errore.message : errore);
+  });
+});
+
+document.getElementById("btn-logout").addEventListener("click", () => {
+  signOut(auth);
+});
+
+onAuthStateChanged(auth, async (utente) => {
+  if (!utente) {
+    document.getElementById("schermata-login").classList.remove("nascosto");
+    document.getElementById("contenuto-principale").classList.add("nascosto");
+    return;
+  }
+
+  // Verifico che l'email sia tra quelle autorizzate, leggendo il
+  // documento admin/{email}: se non esiste, la regola Firestore
+  // rifiuterebbe comunque ogni scrittura, ma qui do subito un
+  // messaggio chiaro invece di far scoprire l'errore poco alla volta.
+  try {
+    const istantaneaAdmin = await getDoc(doc(db, "admin", utente.email));
+    if (!istantaneaAdmin.exists()) {
+      document.getElementById("schermata-login").classList.remove("nascosto");
+      document.getElementById("contenuto-principale").classList.add("nascosto");
+      document.getElementById("riquadro-non-autorizzato").classList.remove("nascosto");
+      document.getElementById("riquadro-non-autorizzato").textContent =
+        "L'account " + utente.email + " non è autorizzato ad accedere a questo pannello. Rivolgiti a chi gestisce il sistema.";
+      await signOut(auth);
+      return;
+    }
+  } catch (errore) {
+    document.getElementById("schermata-login").classList.remove("nascosto");
+    document.getElementById("contenuto-principale").classList.add("nascosto");
+    document.getElementById("riquadro-non-autorizzato").classList.remove("nascosto");
+    document.getElementById("riquadro-non-autorizzato").textContent =
+      "Errore nel controllo dell'accesso: " + (errore && errore.message ? errore.message : errore);
+    return;
+  }
+
+  document.getElementById("schermata-login").classList.add("nascosto");
+  document.getElementById("riquadro-non-autorizzato").classList.add("nascosto");
+  document.getElementById("contenuto-principale").classList.remove("nascosto");
+  document.getElementById("testo-utente-loggato").textContent = utente.email;
+  caricaElenco();
+});
+
+// ============================================================
+// LIVELLO DATI SU FIRESTORE (sostituisce Codice.gs)
+// ============================================================
+
+// Elenco di tutti i test, con conteggi già calcolati (domande,
+// allievi, completati). Presenza e stato del turno vengono
+// aggiunti subito dopo da arricchisciConStatoLive.
+async function elencoTest() {
+  const istantanea = await getDocs(collection(db, "test"));
+  const risultato = [];
+  for (const documento of istantanea.docs) {
+    const dati = documento.data();
+    const istantaneaRisultati = await getDocs(
+      query(riferimentoRisultati(documento.id), where("annullato", "==", false))
+    );
+    risultato.push({
+      id: documento.id,
+      nome: dati.nome || "",
+      pin: dati.pin || "",
+      attivo: !!dati.attivo,
+      numDomande: (dati.domande || []).length,
+      numStudenti: (dati.studenti || []).length,
+      dataCreazione: dati.dataCreazione || "",
+      durataMinuti: (dati.durataMinuti === undefined || dati.durataMinuti === null) ? 20 : Number(dati.durataMinuti),
+      completati: istantaneaRisultati.size,
+      azzeramenti: dati.azzeramenti || 0,
+      avviatoTimestamp: dati.avviatoTimestamp || null,
+      pausaTimestamp: dati.pausaTimestamp || null,
+      terminatoTimestamp: dati.terminatoTimestamp || null,
+      totalePausaMs: dati.totalePausaMs || 0
+    });
+  }
+  return risultato;
+}
+
+function nuovoIdTest() {
+  return "T" + Math.random().toString(36).substring(2, 10);
+}
+
+async function creaTest(nome, pin, durataMinuti, domande, studenti) {
+  const id = nuovoIdTest();
+  await setDoc(riferimentoTest(id), {
+    nome, pin, durataMinuti, domande, studenti,
+    attivo: false,
+    dataCreazione: new Date().toLocaleString("it-IT"),
+    azzeramenti: 0,
+    avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
+    totalePausaMs: 0, secondiRimastiAllaPausa: null
+  });
+  return id;
+}
+
+async function aggiornaTest(id, nome, pin, durataMinuti, domande, studenti) {
+  const dati = { nome, pin, durataMinuti };
+  if (domande) dati.domande = domande;
+  if (studenti) dati.studenti = studenti;
+  await updateDoc(riferimentoTest(id), dati);
+  return true;
+}
+
+// Attiva questo test (visibile agli allievi) e disattiva tutti gli
+// altri, aggiornando anche il puntatore stato/attivo che locandina
+// e quiz leggono per sapere quale test caricare senza dover
+// elencare l'intera collezione.
+async function attivaTest(id) {
+  const istantanea = await getDocs(collection(db, "test"));
+  const batch = writeBatch(db);
+  istantanea.docs.forEach(documento => {
+    const eQuestoTest = documento.id === id;
+    batch.update(documento.ref, {
+      attivo: eQuestoTest,
+      ...(eQuestoTest ? {
+        avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
+        totalePausaMs: 0, secondiRimastiAllaPausa: null
+      } : {})
+    });
+  });
+  await batch.commit();
+  await setDoc(riferimentoStatoAttivo(), { idTest: id });
+  return true;
+}
+
+async function disattivaTutti() {
+  const istantanea = await getDocs(collection(db, "test"));
+  const batch = writeBatch(db);
+  istantanea.docs.forEach(documento => {
+    batch.update(documento.ref, {
+      attivo: false,
+      avviatoTimestamp: null, terminatoTimestamp: null,
+      pausaTimestamp: null, totalePausaMs: 0
+    });
+  });
+  await batch.commit();
+  await setDoc(riferimentoStatoAttivo(), { idTest: null });
+  return true;
+}
+
+// Cancella un test e tutto quello che lo riguarda: presenze,
+// risultati, e le voci di log che lo citano. Le sotto-collezioni
+// vanno svuotate a mano, Firestore non le cancella da sole insieme
+// al documento padre.
+async function svuotaSottocollezione(riferimentoCollezione) {
+  const istantanea = await getDocs(riferimentoCollezione);
+  if (istantanea.empty) return;
+  const batch = writeBatch(db);
+  istantanea.docs.forEach(documento => batch.delete(documento.ref));
+  await batch.commit();
+}
+
+async function eliminaTest(id) {
+  await svuotaSottocollezione(riferimentoPresenze(id));
+  await svuotaSottocollezione(riferimentoRisultati(id));
+
+  const istantaneaLog = await getDocs(query(collection(db, "log"), where("idTest", "==", id)));
+  if (!istantaneaLog.empty) {
+    const batchLog = writeBatch(db);
+    istantaneaLog.docs.forEach(documento => batchLog.delete(documento.ref));
+    await batchLog.commit();
+  }
+
+  await deleteDoc(riferimentoTest(id));
+
+  // Se era il test attivo, tolgo anche il puntatore.
+  const puntatore = await getDoc(riferimentoStatoAttivo());
+  if (puntatore.exists() && puntatore.data().idTest === id) {
+    await setDoc(riferimentoStatoAttivo(), { idTest: null });
+  }
+  return true;
+}
+
+async function getDettaglioTest(id) {
+  const istantanea = await getDoc(riferimentoTest(id));
+  if (!istantanea.exists()) return null;
+  const dati = istantanea.data();
+  return {
+    id: istantanea.id,
+    nome: dati.nome || "",
+    pin: dati.pin || "",
+    durataMinuti: (dati.durataMinuti === undefined || dati.durataMinuti === null) ? 20 : Number(dati.durataMinuti),
+    domande: dati.domande || [],
+    studenti: dati.studenti || []
+  };
+}
+
+async function duplicaTest(id) {
+  const originale = await getDettaglioTest(id);
+  if (!originale) return null;
+  return creaTest(originale.nome + " (copia)", originale.pin, originale.durataMinuti, originale.domande, originale.studenti);
+}
+
+// Elenco di chi ha già completato il test, con data e numero di
+// tentativi totali (compresi quelli annullati), ordinato per nome.
+async function elencoCompletati(idTest) {
+  const istantanea = await getDocs(riferimentoRisultati(idTest));
+  const perNome = {};
+  istantanea.docs.forEach(documento => {
+    const d = documento.data();
+    const nome = (d.nome || "").trim();
+    if (!nome) return;
+    const chiaveNome = nome.toLowerCase();
+    if (!perNome[chiaveNome]) perNome[chiaveNome] = { nome, tentativi: [] };
+    perNome[chiaveNome].tentativi.push(d);
+  });
+
+  const elenco = [];
+  Object.values(perNome).forEach(voce => {
+    const nonAnnullato = voce.tentativi.find(t => !t.annullato);
+    if (!nonAnnullato) return; // tutti i tentativi sono stati annullati, non ha un esito valido corrente
+    elenco.push({
+      nome: voce.nome,
+      dataOra: nonAnnullato.timestamp || "",
+      numeroTentativi: voce.tentativi.length
+    });
+  });
+  elenco.sort((a, b) => a.nome.localeCompare(b.nome, "it"));
+  return elenco;
+}
+
+// Marca come annullato il risultato attualmente valido di un
+// allievo, così il quiz gli permette di rifare il test: la nuova
+// consegna creerà un documento nuovo con un numero di tentativo
+// più alto, senza toccare la traccia di quello precedente.
+async function permettiNuovoTentativo(idTest, nomeAllievo) {
+  const istantanea = await getDocs(
+    query(riferimentoRisultati(idTest), where("nome", "==", nomeAllievo), where("annullato", "==", false))
+  );
+  if (istantanea.empty) return { esito: "non_trovato" };
+  const batch = writeBatch(db);
+  istantanea.docs.forEach(documento => batch.update(documento.ref, { annullato: true }));
+  await batch.commit();
+  return { esito: "ok" };
+}
+
+async function permettiNuoviTentativi(idTest, nomiArray) {
+  const risultati = [];
+  for (const nome of nomiArray) {
+    const esito = await permettiNuovoTentativo(idTest, nome);
+    risultati.push({ nome, esito: esito.esito });
+  }
+  return risultati;
+}
+
+// Conta gli allievi con presenza fresca (segnale ricevuto negli
+// ultimi 70 secondi) ancora "in_corso", per sapere quando è sicuro
+// azzerare il turno dopo una chiusura manuale.
+async function contaInSvolgimentoFirestore(idTest) {
+  const istantanea = await getDocs(riferimentoPresenze(idTest));
+  const ora = Date.now();
+  const SOGLIA_CONNESSIONE_MS = 70000;
+  let inSvolgimento = 0;
+  istantanea.forEach(documento => {
+    const dati = documento.data();
+    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+    if (fresco && dati.stato === "in_corso") inSvolgimento++;
+  });
+  return inSvolgimento;
+}
+
+async function azzeraTurnoFirestore(idTest) {
+  await setDoc(riferimentoTest(idTest), {
+    avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
+    totalePausaMs: 0, secondiRimastiAllaPausa: null,
+    azzeramenti: increment(1)
+  }, { merge: true });
+  await svuotaSottocollezione(riferimentoPresenze(idTest));
+}
+
+// Legge lo stato vivo (connessi, in svolgimento) dalle presenze,
+// esattamente come faceva arricchisciConFirestore nella versione
+// precedente, ora usando gli stessi dati del test già letti sopra
+// invece di un secondo giro sul foglio Google.
+async function arricchisciConStatoLive(test) {
+  try {
+    const istantaneaPresenze = await getDocs(riferimentoPresenze(test.id));
+    test.inCorso = !!(test.avviatoTimestamp && !test.terminatoTimestamp);
+    test.inPausa = !!test.pausaTimestamp;
+
+    const ora = Date.now();
+    const SOGLIA_CONNESSIONE_MS = 70000;
+    let connessi = 0, inSvolgimento = 0;
+    istantaneaPresenze.forEach(documento => {
+      const d = documento.data();
+      const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+      if (!fresco) return;
+      if (d.stato === "attesa" || d.stato === "in_corso" || d.stato === "bloccato") connessi++;
+      if (d.stato === "in_corso") inSvolgimento++;
+    });
+    test.connessi = connessi;
+    test.inSvolgimento = inSvolgimento;
+  } catch (erroreFirestore) {
+    test.connessi = 0;
+    test.inSvolgimento = 0;
+    test.inCorso = false;
+    test.inPausa = false;
+  }
+  return test;
+}
+
+// Esporta i risultati di un test in Excel, con le stesse colonne e
+// gli stessi colori (verde risposta esatta, rosso risposta errata)
+// della versione precedente. SheetJS non gestisce i colori, quindi
+// qui uso ExcelJS solo per questo export.
+const COLORE_CORRETTA = "FFB6E3B6";
+const COLORE_SBAGLIATA = "FFF4B6B6";
+
+async function scaricaRisultatiExcel(idTest, nomeTest) {
+  const istantanea = await getDocs(riferimentoRisultati(idTest));
+  if (istantanea.empty) return { esito: "vuoto" };
+
+  // Solo i risultati non annullati, ordinati per data di invio.
+  const righe = istantanea.docs
+    .map(documento => documento.data())
+    .filter(r => !r.annullato)
+    .sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
+
+  const numeroMassimoDomande = Math.max(0, ...righe.map(r => (r.risposte || []).length));
+
+  const cartella = new ExcelJS.Workbook();
+  const foglio = cartella.addWorksheet("Risultati");
+
+  const intestazione = ["Data invio", "Cognome e Nome", "Punteggio", "Su totale domande", "Scaduto per tempo"];
+  for (let i = 0; i < numeroMassimoDomande; i++) {
+    intestazione.push(righe.find(r => r.risposte && r.risposte[i]) ?.risposte[i].testo || ("Domanda " + (i + 1)));
+  }
+  foglio.addRow(intestazione);
+  foglio.getRow(1).font = { bold: true };
+  foglio.getRow(1).alignment = { wrapText: true, vertical: "top" };
+
+  righe.forEach(r => {
+    const rigaValori = [r.timestamp || "", r.nome || "", r.punteggio, r.totaleDomande, r.scadutoPerTempo || "NO"];
+    (r.risposte || []).forEach(risposta => {
+      const testoRisposta = risposta.risposta || "(nessuna risposta)";
+      rigaValori.push(risposta.corretta === "SI" ? testoRisposta + " (Corretto)" : testoRisposta + " (Errata)");
+    });
+    const rigaAggiunta = foglio.addRow(rigaValori);
+    (r.risposte || []).forEach((risposta, indice) => {
+      const cella = rigaAggiunta.getCell(6 + indice);
+      cella.fill = {
+        type: "pattern", pattern: "solid",
+        fgColor: { argb: risposta.corretta === "SI" ? COLORE_CORRETTA : COLORE_SBAGLIATA }
+      };
+      cella.alignment = { wrapText: true, vertical: "top" };
+    });
+  });
+
+  foglio.columns.forEach(colonna => { colonna.width = 22; });
+  foglio.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
+
+  const buffer = await cartella.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Risultati - " + nomeTest + ".xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return { esito: "ok" };
+}
+
+// ============================================================
+// DA QUI IN POI: STESSA INTERFACCIA DELLA VERSIONE PRECEDENTE,
+// con le chiamate a google.script.run sostituite dalle funzioni
+// Firestore definite sopra.
+// ============================================================
+
+function mostraMessaggio(testo, tipo) {
+  const div = document.getElementById("messaggio-globale");
+  div.innerHTML = '<div class="messaggio messaggio-' + tipo + '">' + testo + '</div>';
+  setTimeout(() => { div.innerHTML = ""; }, 6000);
+}
+
+function erroreConSblocco(e) {
+  sbloccaInterfaccia();
+  mostraMessaggio("Errore: " + (e && e.message ? e.message : e), "errore");
+}
+
+let timerSicurezzaVelo = null;
+function bloccaInterfaccia() {
+  document.getElementById("velo-azione-in-corso").classList.remove("nascosto");
+  if (timerSicurezzaVelo) clearTimeout(timerSicurezzaVelo);
+  timerSicurezzaVelo = setTimeout(() => { sbloccaInterfaccia(); }, 15000);
+}
+function sbloccaInterfaccia() {
+  document.getElementById("velo-azione-in-corso").classList.add("nascosto");
+  if (timerSicurezzaVelo) { clearTimeout(timerSicurezzaVelo); timerSicurezzaVelo = null; }
+}
+
+let datiTimerPerTest = {};
+
+function esadecimaleARgb(esadecimale) {
+  const pulito = esadecimale.replace("#", "");
+  return { r: parseInt(pulito.substring(0, 2), 16), g: parseInt(pulito.substring(2, 4), 16), b: parseInt(pulito.substring(4, 6), 16) };
+}
+function interpolaColore(colore1, colore2, t) {
+  const c1 = esadecimaleARgb(colore1), c2 = esadecimaleARgb(colore2);
+  return "rgb(" + Math.round(c1.r + (c2.r - c1.r) * t) + "," + Math.round(c1.g + (c2.g - c1.g) * t) + "," + Math.round(c1.b + (c2.b - c1.b) * t) + ")";
+}
+function coloreTimerDaFrazione(frazione) {
+  if (frazione <= 0.10) return "#e63946";
+  if (frazione <= 0.5) return interpolaColore("#c9a04a", "#e63946", (0.5 - frazione) / (0.5 - 0.10));
+  return interpolaColore("#2a9d8f", "#c9a04a", Math.min((1 - frazione) / (1 - 0.5), 1));
+}
+
+function calcolaSecondiRimasti(dati) {
+  if (!dati || !dati.avviatoTimestamp || !dati.durataMinuti) return null;
+  const ora = Date.now();
+  const pausaInCorsoMs = dati.pausaTimestamp ? (ora - Number(dati.pausaTimestamp)) : 0;
+  const msTrascorsiEffettivi = (ora - Number(dati.avviatoTimestamp)) - Number(dati.totalePausaMs || 0) - pausaInCorsoMs;
+  return Math.max(dati.durataMinuti * 60 - Math.floor(msTrascorsiEffettivi / 1000), 0);
+}
+
+function celleDurata(test) {
+  if (test.durataMinuti === 0) return "Nessun limite";
+  if (!test.inCorso) return test.durataMinuti + " min";
+  const dati = { durataMinuti: test.durataMinuti, avviatoTimestamp: test.avviatoTimestamp, pausaTimestamp: test.pausaTimestamp, totalePausaMs: test.totalePausaMs };
+  const secondiRimasti = calcolaSecondiRimasti(dati);
+  if (secondiRimasti === null) return '<span class="countdown-cell-admin" data-test-id="' + test.id + '">--:--</span>';
+  const minuti = Math.floor(secondiRimasti / 60), secondi = secondiRimasti % 60;
+  const testo = String(minuti).padStart(2, "0") + ":" + String(secondi).padStart(2, "0");
+  const frazione = secondiRimasti / (test.durataMinuti * 60);
+  const colore = coloreTimerDaFrazione(frazione);
+  const classeCritico = frazione <= 0.10 ? " timer-critico-admin" : "";
+  return '<span class="countdown-cell-admin' + classeCritico + '" data-test-id="' + test.id + '" style="background-color:' + colore + ';">' + testo + '</span>';
+}
+
+function aggiornaCountdownAdmin() {
+  document.querySelectorAll(".countdown-cell-admin").forEach(el => {
+    const idTest = el.getAttribute("data-test-id");
+    const dati = datiTimerPerTest[idTest];
+    const secondiRimasti = calcolaSecondiRimasti(dati);
+    if (secondiRimasti === null) return;
+    const minuti = Math.floor(secondiRimasti / 60), secondi = secondiRimasti % 60;
+    el.textContent = String(minuti).padStart(2, "0") + ":" + String(secondi).padStart(2, "0");
+    const frazione = secondiRimasti / (dati.durataMinuti * 60);
+    el.style.backgroundColor = coloreTimerDaFrazione(frazione);
+    el.classList.toggle("timer-critico-admin", frazione <= 0.10);
+  });
+}
+setInterval(aggiornaCountdownAdmin, 1000);
+
+let contatoreRichiesteElenco = 0;
+let richiestaElencoInVolo = false;
+let richiestaElencoInSospeso = false;
+
+function caricaElenco() {
+  if (richiestaElencoInVolo) { richiestaElencoInSospeso = true; return; }
+  richiestaElencoInVolo = true;
+  const richiestaCorrente = ++contatoreRichiesteElenco;
+
+  const fine = () => {
+    richiestaElencoInVolo = false;
+    if (richiestaElencoInSospeso) { richiestaElencoInSospeso = false; caricaElenco(); }
+  };
+
+  elencoTest().then(elenco => {
+    if (elenco.length === 0) {
+      if (richiestaCorrente === contatoreRichiesteElenco) { mostraElenco(elenco); sbloccaInterfaccia(); }
+      fine();
+      return;
+    }
+    Promise.all(elenco.map(test => arricchisciConStatoLive(test))).then(elencoArricchito => {
+      if (richiestaCorrente === contatoreRichiesteElenco) { mostraElenco(elencoArricchito); sbloccaInterfaccia(); }
+      fine();
+    }).catch(() => {
+      if (richiestaCorrente === contatoreRichiesteElenco) { mostraElenco(elenco); sbloccaInterfaccia(); }
+      fine();
+    });
+  }).catch(errore => {
+    if (richiestaCorrente === contatoreRichiesteElenco) erroreCaricamento(errore);
+    fine();
+  });
+}
+
+function erroreCaricamento(errore) {
+  sbloccaInterfaccia();
+  document.getElementById("lista-caricamento").textContent = "Errore nel caricamento: " + (errore && errore.message ? errore.message : errore);
+}
+
+let statoLiveTest = {};
+function calcolaOrarioUltimaModifica(test) {
+  const valoreAttuale = test.connessi + "|" + test.inSvolgimento + "|" + test.completati + "|" + test.azzeramenti;
+  const precedente = statoLiveTest[test.id];
+  if (!precedente || precedente.valore !== valoreAttuale) {
+    statoLiveTest[test.id] = { valore: valoreAttuale, orario: new Date().toLocaleString("it-IT") };
+  }
+  return statoLiveTest[test.id].orario;
+}
+
+function mostraElenco(elenco) {
+  document.getElementById("lista-caricamento").classList.add("nascosto");
+  document.getElementById("testo-ultimo-refresh").textContent = "Dati aggiornati alle " + new Date().toLocaleTimeString("it-IT");
+
+  datiTimerPerTest = {};
+  elenco.forEach(test => {
+    datiTimerPerTest[test.id] = { durataMinuti: test.durataMinuti, avviatoTimestamp: test.avviatoTimestamp, pausaTimestamp: test.pausaTimestamp, totalePausaMs: test.totalePausaMs };
+  });
+
+  if (elenco.length === 0) {
+    document.getElementById("nessun-test").classList.remove("nascosto");
+    document.getElementById("tabella-test").classList.add("nascosto");
+    return;
+  }
+  document.getElementById("nessun-test").classList.add("nascosto");
+  document.getElementById("tabella-test").classList.remove("nascosto");
+  const corpo = document.getElementById("corpo-tabella-test");
+  corpo.innerHTML = "";
+  elenco.forEach(test => {
+    const riga = document.createElement("tr");
+    riga.innerHTML =
+      '<td>' + escapeHtml(test.nome) + '</td>' +
+      '<td>' + escapeHtml(test.pin) + '</td>' +
+      '<td>' + celleDurata(test) + '</td>' +
+      '<td>' + test.numDomande + '</td>' +
+      '<td>' + test.numStudenti + '</td>' +
+      '<td>' + test.connessi + '</td>' +
+      '<td>' + test.inSvolgimento + '</td>' +
+      '<td style="background:' + (test.completati === test.numStudenti && test.numStudenti > 0 ? '#c8f0c8' : '#ffe3c2') + ';">' + test.completati + '</td>' +
+      '<td>' + test.azzeramenti + '</td>' +
+      '<td>' + escapeHtml(calcolaOrarioUltimaModifica(test)) + '</td>' +
+      '<td>' + (test.attivo ? '<span class="badge-attivo">ATTIVO</span>' : '<span class="badge-inattivo">non attivo</span>') + (test.inCorso ? '<br><span class="badge-in-corso">TEST IN CORSO</span>' : '') + (test.inPausa ? '<br><span class="badge-in-pausa">IN PAUSA</span>' : '') + '</td>' +
+      '<td></td>';
+    const cellaAzioni = riga.querySelector('td:last-child');
+    cellaAzioni.className = "cella-azioni";
+
+    const separatore = () => { const s = document.createElement("span"); s.className = "separatore-azioni"; cellaAzioni.appendChild(s); };
+
+    const btnAttivaDisattiva = document.createElement("button");
+    if (!test.attivo) {
+      btnAttivaDisattiva.textContent = "Attiva";
+      btnAttivaDisattiva.onclick = () => attivaTestConGestione(test.id);
+    } else {
+      btnAttivaDisattiva.textContent = "Disattiva";
+      btnAttivaDisattiva.className = "secondario";
+      btnAttivaDisattiva.onclick = () => disattivaTuttiConGestione();
+    }
+    cellaAzioni.appendChild(btnAttivaDisattiva);
+
+    separatore();
+
+    const btnAvvia = document.createElement("button");
+    btnAvvia.textContent = "Avvia il test per tutti";
+    btnAvvia.className = "btn-sessione";
+    if (!test.attivo) { btnAvvia.disabled = true; btnAvvia.title = "Il test non è attivo, attivalo prima di avviarlo per tutti"; }
+    else if (test.inCorso) { btnAvvia.disabled = true; btnAvvia.title = "Il test è già stato avviato per tutti"; }
+    else { btnAvvia.onclick = () => avviaTestConConferma(test.id, test.nome); }
+    cellaAzioni.appendChild(btnAvvia);
+
+    const btnPausaRiprendi = document.createElement("button");
+    btnPausaRiprendi.className = "btn-sessione";
+    if (!test.inCorso) { btnPausaRiprendi.textContent = "Pausa"; btnPausaRiprendi.disabled = true; btnPausaRiprendi.title = "Il test non è ancora in corso, non c'è nulla da mettere in pausa"; }
+    else if (test.inPausa) { btnPausaRiprendi.textContent = "Riprendi"; btnPausaRiprendi.onclick = () => riprendiTestConConferma(test.id); }
+    else { btnPausaRiprendi.textContent = "Pausa"; btnPausaRiprendi.onclick = () => pausaTestConConferma(test); }
+    cellaAzioni.appendChild(btnPausaRiprendi);
+
+    const btnTerminaManualmente = document.createElement("button");
+    btnTerminaManualmente.textContent = "Termina manualmente";
+    btnTerminaManualmente.className = "btn-sessione";
+    if (!test.inCorso) { btnTerminaManualmente.disabled = true; btnTerminaManualmente.title = "Il test non è in corso, non c'è nessun turno da chiudere"; }
+    else { btnTerminaManualmente.onclick = () => terminaManualmenteConConferma(test.id); }
+    cellaAzioni.appendChild(btnTerminaManualmente);
+
+    separatore();
+
+    const btnModifica = document.createElement("button");
+    btnModifica.textContent = "Modifica"; btnModifica.className = "secondario";
+    btnModifica.onclick = () => avviaModifica(test.id);
+    cellaAzioni.appendChild(btnModifica);
+
+    const btnDuplica = document.createElement("button");
+    btnDuplica.textContent = "Duplica test"; btnDuplica.className = "secondario";
+    btnDuplica.onclick = () => duplicaTestConConferma(test.id);
+    cellaAzioni.appendChild(btnDuplica);
+
+    const btnNuovoTentativo = document.createElement("button");
+    btnNuovoTentativo.textContent = "Nuovo tentativo"; btnNuovoTentativo.className = "secondario";
+    btnNuovoTentativo.onclick = () => avviaPannelloNuovoTentativo(test.id, test.nome);
+    cellaAzioni.appendChild(btnNuovoTentativo);
+
+    const btnScaricaRisultati = document.createElement("button");
+    btnScaricaRisultati.textContent = "Scarica risultati"; btnScaricaRisultati.className = "secondario";
+    if (!test.completati || test.completati === 0) { btnScaricaRisultati.disabled = true; btnScaricaRisultati.title = "Nessun allievo ha ancora completato questo test, non c'e' ancora nulla da scaricare"; }
+    else { btnScaricaRisultati.onclick = () => scaricaRisultati(test.id, test.nome); }
+    cellaAzioni.appendChild(btnScaricaRisultati);
+
+    separatore();
+
+    const btnElimina = document.createElement("button");
+    btnElimina.textContent = "Elimina"; btnElimina.className = "pericolo";
+    btnElimina.onclick = () => eliminaTestConConferma(test.id, test.nome);
+    cellaAzioni.appendChild(btnElimina);
+
+    corpo.appendChild(riga);
+  });
+}
+
+function escapeHtml(testo) {
+  const d = document.createElement("div");
+  d.textContent = testo;
+  return d.innerHTML;
+}
+
+function chiudiPannelloTentativoSeAperto() {
+  const scheda = document.getElementById("scheda-nuovo-tentativo");
+  if (scheda && !scheda.classList.contains("nascosto")) { scheda.classList.add("nascosto"); idTestTentativo = null; }
+}
+
+function attivaTestConGestione(id) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  attivaTest(id).then(() => {
+    mostraMessaggio("Test attivato. E' ora quello visibile agli allievi sul sito.", "ok");
+    caricaElenco();
+  }).catch(erroreConSblocco);
+}
+
+function disattivaTuttiConGestione() {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  disattivaTutti().then(() => {
+    mostraMessaggio("Nessun test e' piu' attivo. Il sito non mostrera' quiz agli allievi.", "ok");
+    caricaElenco();
+  }).catch(erroreConSblocco);
+}
+
+function eliminaTestConConferma(id, nome) {
+  if (!confirm('Eliminare definitivamente "' + nome + '"? Verranno cancellati anche tutti i risultati già raccolti per questo test, oltre a presenze residue e righe di log che lo riguardano. L\'operazione non può essere annullata.')) return;
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  eliminaTest(id).then(() => {
+    mostraMessaggio("Test eliminato.", "ok");
+    caricaElenco();
+  }).catch(erroreConSblocco);
+}
+
+function avviaTestConConferma(id) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  getDoc(riferimentoTest(id)).then(istantanea => {
+    const dati = istantanea.exists() ? istantanea.data() : {};
+    if (dati.avviatoTimestamp) { mostraMessaggio("Il test risultava già avviato.", "errore"); caricaElenco(); return; }
+    return setDoc(riferimentoTest(id), { avviatoTimestamp: Date.now() }, { merge: true }).then(() => {
+      mostraMessaggio("Test avviato per tutti gli studenti in attesa.", "ok");
+      caricaElenco();
+    });
+  }).catch(erroreConSblocco);
+}
+
+function terminaManualmenteConConferma(id) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  mostraMessaggio("Chiusura del turno in corso, aspetto che gli ultimi invii arrivino prima di azzerare.", "ok");
+  setDoc(riferimentoTest(id), { terminatoTimestamp: Date.now() }, { merge: true })
+    .then(() => aspettaEAzzeraTurno(id, 0))
+    .catch(erroreConSblocco);
+}
+
+function aspettaEAzzeraTurno(id, controlli) {
+  const massimoControlli = 36;
+  contaInSvolgimentoFirestore(id).then(inSvolgimento => {
+    if (inSvolgimento > 0 && controlli < massimoControlli) {
+      setTimeout(() => aspettaEAzzeraTurno(id, controlli + 1), 5000);
+    } else {
+      azzeraTurnoFirestore(id).then(() => {
+        mostraMessaggio("Turno chiuso e azzerato. Pronto per il prossimo gruppo di allievi.", "ok");
+        caricaElenco();
+      }).catch(erroreConSblocco);
+    }
+  }).catch(() => {
+    if (controlli < massimoControlli) setTimeout(() => aspettaEAzzeraTurno(id, controlli + 1), 5000);
+    else azzeraTurnoFirestore(id).finally(() => caricaElenco());
+  });
+}
+
+function pausaTestConConferma(test) {
+  const id = test.id;
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  getDoc(riferimentoTest(id)).then(istantanea => {
+    const dati = istantanea.exists() ? istantanea.data() : {};
+    if (!dati.avviatoTimestamp || dati.terminatoTimestamp) { sbloccaInterfaccia(); mostraMessaggio("Questo test non e' attualmente in corso, non c'e' nulla da mettere in pausa.", "errore"); return; }
+    if (dati.pausaTimestamp) { sbloccaInterfaccia(); mostraMessaggio("Questo test e' gia' in pausa.", "errore"); return; }
+    const ora = Date.now();
+    const msTrascorsiEffettivi = (ora - Number(dati.avviatoTimestamp)) - Number(dati.totalePausaMs || 0);
+    const secondiRimastiAllaPausa = Math.max(Number(test.durataMinuti || 0) * 60 - Math.floor(msTrascorsiEffettivi / 1000), 0);
+    return setDoc(riferimentoTest(id), { pausaTimestamp: ora, secondiRimastiAllaPausa }, { merge: true }).then(() => {
+      mostraMessaggio("Test messo in pausa. Gli allievi vedono ora una schermata di attesa.", "ok");
+      caricaElenco();
+    });
+  }).catch(erroreConSblocco);
+}
+
+function riprendiTestConConferma(id) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  getDoc(riferimentoTest(id)).then(istantanea => {
+    const dati = istantanea.exists() ? istantanea.data() : {};
+    if (!dati.pausaTimestamp) { sbloccaInterfaccia(); mostraMessaggio("Questo test non risulta in pausa.", "errore"); return; }
+    const nuovoTotalePausaMs = Number(dati.totalePausaMs || 0) + (Date.now() - Number(dati.pausaTimestamp));
+    return setDoc(riferimentoTest(id), { pausaTimestamp: null, totalePausaMs: nuovoTotalePausaMs }, { merge: true }).then(() => {
+      mostraMessaggio("Test ripreso. Gli allievi continuano da dove erano rimasti.", "ok");
+      caricaElenco();
+    });
+  }).catch(erroreConSblocco);
+}
+
+function duplicaTestConConferma(id) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  duplicaTest(id).then(() => {
+    mostraMessaggio("Test duplicato con successo. Trovi la copia in fondo all'elenco.", "ok");
+    caricaElenco();
+  }).catch(erroreConSblocco);
+}
+
+// ============================================================
+// PERMETTI NUOVO TENTATIVO
+// ============================================================
+let idTestTentativo = null;
+
+function avviaPannelloNuovoTentativo(id, nomeTest) {
+  idTestTentativo = id;
+  document.getElementById("testo-tentativo-nome-test").textContent = 'Test: "' + nomeTest + '"';
+  document.getElementById("esito-tentativo").innerHTML = "";
+  const lista = document.getElementById("lista-tentativo-allievi");
+  lista.innerHTML = "Caricamento in corso...";
+  document.getElementById("scheda-nuovo-tentativo").classList.remove("nascosto");
+  document.getElementById("scheda-nuovo-tentativo").scrollIntoView({ behavior: "smooth", block: "start" });
+
+  elencoCompletati(id).then(allievi => {
+    if (allievi.length === 0) { lista.innerHTML = "Nessun allievo ha ancora completato questo test."; return; }
+    lista.innerHTML = "";
+    allievi.forEach(a => {
+      const riga = document.createElement("label");
+      riga.style.cssText = "display:flex; align-items:center; gap:10px; padding:8px 4px; font-weight:400; margin:0; border-bottom:1px solid #eee;";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox"; checkbox.value = a.nome; checkbox.className = "checkbox-allievo-tentativo"; checkbox.style.width = "auto";
+      const testo = document.createElement("span");
+      const etichettaTentativi = a.numeroTentativi === 1 ? "1 tentativo" : (a.numeroTentativi + " tentativi");
+      testo.innerHTML = '<strong>' + escapeHtml(a.nome) + '</strong><br><span style="color:#888; font-size:0.85rem;">svolto il ' + escapeHtml(a.dataOra) + ', ' + etichettaTentativi + '</span>';
+      riga.appendChild(checkbox); riga.appendChild(testo);
+      lista.appendChild(riga);
+    });
+  }).catch(e => {
+    lista.innerHTML = "Errore nel caricamento.";
+    mostraMessaggio("Errore: " + (e && e.message ? e.message : e), "errore");
+  });
+}
+
+document.getElementById("btn-annulla-tentativo").addEventListener("click", () => {
+  document.getElementById("scheda-nuovo-tentativo").classList.add("nascosto");
+  idTestTentativo = null;
+});
+
+document.getElementById("btn-conferma-tentativo").addEventListener("click", () => {
+  const nomiScelti = Array.from(document.querySelectorAll(".checkbox-allievo-tentativo:checked")).map(c => c.value);
+  if (nomiScelti.length === 0) { mostraMessaggio("Seleziona almeno un allievo dall'elenco.", "errore"); return; }
+
+  bloccaInterfaccia();
+  const bottone = document.getElementById("btn-conferma-tentativo");
+  bottone.disabled = true; bottone.textContent = "Attendere...";
+
+  permettiNuoviTentativi(idTestTentativo, nomiScelti).then(risultati => {
+    bottone.disabled = false; bottone.textContent = "Conferma";
+    const riusciti = risultati.filter(r => r.esito === "ok").length;
+    const falliti = risultati.length - riusciti;
+    let messaggio = riusciti + " allievo/i possono ora rifare il test.";
+    if (falliti > 0) messaggio += " " + falliti + " non trovati, non modificati.";
+    mostraMessaggio(messaggio, falliti > 0 ? "errore" : "ok");
+    document.getElementById("scheda-nuovo-tentativo").classList.add("nascosto");
+    idTestTentativo = null;
+    caricaElenco();
+  }).catch(e => {
+    bottone.disabled = false; bottone.textContent = "Conferma";
+    erroreConSblocco(e);
+  });
+});
+
+function scaricaRisultati(id, nome) {
+  bloccaInterfaccia();
+  scaricaRisultatiExcel(id, nome).then(risultato => {
+    sbloccaInterfaccia();
+    if (risultato.esito === "vuoto") mostraMessaggio("Nessun risultato ancora salvato per questo test.", "errore");
+  }).catch(erroreConSblocco);
+}
+
+// ============================================================
+// FORM: creazione/modifica test, import/export Excel di
+// domande e allievi, editor manuali. Logica invariata rispetto
+// alla versione precedente, lavora sempre in memoria nel
+// browser prima del salvataggio finale su Firestore.
+// ============================================================
+let idInModifica = null;
+let domandeCaricate = null;
+let studentiCaricati = null;
+
+function aggiornaStatoPulsantiDownload() {
+  document.getElementById("btn-scarica-domande").disabled = !domandeCaricate || domandeCaricate.length === 0;
+  document.getElementById("btn-scarica-studenti").disabled = !studentiCaricati || studentiCaricati.length === 0;
+}
+
+document.getElementById("btn-scarica-domande").addEventListener("click", () => {
+  if (!domandeCaricate || domandeCaricate.length === 0) return;
+  const righe = domandeCaricate.map((d, i) => {
+    const indiceCorretta = d.corretta || 0;
+    const altreOpzioni = d.opzioni.filter((_, indice) => indice !== indiceCorretta);
+    return { "NR": i + 1, "DOMANDA": d.testo, "RISPOSTA A ESATTA": d.opzioni[indiceCorretta] || "", "RISPOSTA B": altreOpzioni[0] || "", "RISPOSTA C": altreOpzioni[1] || "" };
+  });
+  const foglio = XLSX.utils.json_to_sheet(righe);
+  const cartella = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(cartella, foglio, "Domande");
+  XLSX.writeFile(cartella, "Domande - " + (document.getElementById("campo-nome-test").value.trim() || "test") + ".xlsx");
+});
+
+document.getElementById("btn-scarica-studenti").addEventListener("click", () => {
+  if (!studentiCaricati || studentiCaricati.length === 0) return;
+  const elenco = (allieviManuale && allieviManuale.length > 0) ? allieviManuale : studentiCaricati.map(stimaCognomeNomeDaStringa);
+  const righe = elenco.map(a => ({ "PERID": a.perid || "", "COGNOME": a.cognome || "", "NOME": a.nome || "" }));
+  const foglio = XLSX.utils.json_to_sheet(righe);
+  const cartella = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(cartella, foglio, "Allievi");
+  XLSX.writeFile(cartella, "Allievi - " + (document.getElementById("campo-nome-test").value.trim() || "test") + ".xlsx");
+});
+
+function avviaModifica(id) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  getDettaglioTest(id).then(test => {
+    idInModifica = test.id;
+    document.getElementById("titolo-form").textContent = 'Modifica: ' + test.nome;
+    document.getElementById("campo-nome-test").value = test.nome;
+    document.getElementById("campo-pin-test").value = test.pin;
+    if (test.durataMinuti > 0) {
+      document.getElementById("campo-nessun-timer").checked = false;
+      document.getElementById("campo-durata-test").disabled = false;
+      document.getElementById("campo-durata-test").value = test.durataMinuti;
+    } else {
+      document.getElementById("campo-nessun-timer").checked = true;
+      document.getElementById("campo-durata-test").disabled = true;
+      document.getElementById("campo-durata-test").value = "";
+    }
+    domandeCaricate = test.domande;
+    studentiCaricati = test.studenti;
+    allieviManuale = test.studenti.map(stimaCognomeNomeDaStringa);
+    document.getElementById("esito-domande").innerHTML = '<span class="esito-ok">' + test.domande.length + ' domande gia\' salvate (carica un nuovo file solo se vuoi sostituirle)</span>';
+    document.getElementById("esito-studenti").innerHTML = '<span class="esito-ok">' + test.studenti.length + ' allievi gia\' salvati (carica un nuovo file solo se vuoi sostituirli)</span>';
+    renderEditorDomande();
+    renderEditorStudenti();
+    aggiornaStatoPulsantiDownload();
+    document.getElementById("btn-annulla-modifica").style.display = "inline-block";
+    apriFormTest();
+    document.getElementById("corpo-form-test").scrollIntoView({ behavior: "smooth", block: "start" });
+    sbloccaInterfaccia();
+  }).catch(erroreConSblocco);
+}
+
+function apriFormTest() { document.getElementById("corpo-form-test").classList.remove("nascosto"); document.getElementById("freccia-form-test").textContent = "▴"; }
+function chiudiFormTest() { document.getElementById("corpo-form-test").classList.add("nascosto"); document.getElementById("freccia-form-test").textContent = "▾"; }
+
+document.getElementById("btn-toggle-form-test").addEventListener("click", () => {
+  const aperto = !document.getElementById("corpo-form-test").classList.contains("nascosto");
+  if (aperto) chiudiFormTest(); else apriFormTest();
+});
+
+document.getElementById("btn-annulla-modifica").addEventListener("click", () => { resetForm(); });
+
+function resetForm() {
+  idInModifica = null; domandeCaricate = null; studentiCaricati = null; allieviManuale = [];
+  document.getElementById("titolo-form").textContent = "Crea nuovo test";
+  document.getElementById("campo-nome-test").value = "";
+  document.getElementById("campo-pin-test").value = "";
+  document.getElementById("campo-durata-test").value = "20";
+  document.getElementById("campo-durata-test").disabled = false;
+  document.getElementById("campo-nessun-timer").checked = false;
+  document.getElementById("file-domande").value = "";
+  document.getElementById("file-studenti").value = "";
+  document.getElementById("esito-domande").innerHTML = "";
+  document.getElementById("esito-studenti").innerHTML = "";
+  document.getElementById("editor-domande-manuale").classList.add("nascosto");
+  document.getElementById("editor-domande-manuale").innerHTML = "";
+  document.getElementById("editor-studenti-manuale").classList.add("nascosto");
+  document.getElementById("editor-studenti-manuale").innerHTML = "";
+  document.getElementById("btn-annulla-modifica").style.display = "none";
+  aggiornaStatoPulsantiDownload();
+  chiudiFormTest();
+}
+
+document.getElementById("file-domande").addEventListener("change", function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: "array" });
+      const righe = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      const domande = righe.map((r, i) => {
+        const chiavi = Object.keys(r);
+        const trovaColonna = (parole) => chiavi.find(k => parole.every(p => k.toUpperCase().includes(p)));
+        const colNr = trovaColonna(["NR"]) || chiavi[0];
+        const colDomanda = trovaColonna(["DOMANDA"]);
+        const colA = trovaColonna(["RISPOSTA", "A"]);
+        const colB = trovaColonna(["RISPOSTA", "B"]);
+        const colC = trovaColonna(["RISPOSTA", "C"]);
+        return { id: "D" + (r[colNr] || (i + 1)), testo: String(r[colDomanda] || "").trim(), opzioni: [String(r[colA] || "").trim(), String(r[colB] || "").trim(), String(r[colC] || "").trim()], corretta: 0 };
+      }).filter(d => d.testo);
+      domandeCaricate = domande;
+      aggiornaStatoPulsantiDownload();
+      document.getElementById("esito-domande").innerHTML = '<span class="esito-ok">' + domande.length + ' domande lette correttamente dal file.</span>';
+      if (!document.getElementById("editor-domande-manuale").classList.contains("nascosto")) renderEditorDomande();
+    } catch (errore) {
+      document.getElementById("esito-domande").innerHTML = '<span class="esito-errore">Errore nella lettura del file: ' + errore.message + '</span>';
+      domandeCaricate = null;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+document.getElementById("file-studenti").addEventListener("change", function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: "array" });
+      const righe = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      const righeValide = righe.map(r => {
+        const chiavi = Object.keys(r);
+        const trovaColonna = (parola) => chiavi.find(k => k.toUpperCase().includes(parola));
+        const colCognome = chiavi.find(k => k.toUpperCase().trim() === "COGNOME") || trovaColonna("COGNOME");
+        const colNome = chiavi.find(k => k.toUpperCase().trim() === "NOME") || chiavi.find(k => k.toUpperCase().includes("NOME") && !k.toUpperCase().includes("COGNOME"));
+        const colPerid = trovaColonna("PERID");
+        const cognome = String(r[colCognome] || "").trim();
+        const nome = String(r[colNome] || "").trim();
+        const perid = colPerid ? String(r[colPerid] || "").trim() : "";
+        if (!cognome || !nome) return null;
+        return { cognome, nome, perid };
+      }).filter(Boolean);
+      allieviManuale = righeValide;
+      sincronizzaStudentiCaricatiDaManuale();
+      aggiornaStatoPulsantiDownload();
+      document.getElementById("esito-studenti").innerHTML = '<span class="esito-ok">' + righeValide.length + ' allievi letti correttamente dal file.</span>';
+      if (!document.getElementById("editor-studenti-manuale").classList.contains("nascosto")) renderEditorStudenti();
+    } catch (errore) {
+      document.getElementById("esito-studenti").innerHTML = '<span class="esito-errore">Errore nella lettura del file: ' + errore.message + '</span>';
+      studentiCaricati = null; allieviManuale = [];
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+document.getElementById("btn-toggle-domande-manuale").addEventListener("click", function() {
+  const editor = document.getElementById("editor-domande-manuale");
+  const aperto = !editor.classList.contains("nascosto");
+  if (aperto) { editor.classList.add("nascosto"); this.textContent = "Inserisci o modifica domande manualmente"; }
+  else {
+    if (!domandeCaricate || domandeCaricate.length === 0) domandeCaricate = [{ id: "D1", testo: "", opzioni: ["", "", ""], corretta: 0 }];
+    renderEditorDomande();
+    editor.classList.remove("nascosto");
+    this.textContent = "Nascondi editor domande";
+  }
+});
+
+function renderEditorDomande() {
+  const editor = document.getElementById("editor-domande-manuale");
+  editor.innerHTML = "";
+  domandeCaricate.forEach((domanda, indice) => {
+    const riga = document.createElement("div");
+    riga.className = "riga-editor-domanda";
+    const intestazione = document.createElement("div");
+    intestazione.className = "intestazione-riga";
+    const numero = document.createElement("span");
+    numero.className = "numero-riga";
+    numero.textContent = "Domanda " + (indice + 1);
+    intestazione.appendChild(numero);
+    const btnRimuovi = document.createElement("button");
+    btnRimuovi.type = "button"; btnRimuovi.className = "btn-rimuovi-riga"; btnRimuovi.textContent = "×"; btnRimuovi.title = "Rimuovi questa domanda";
+    btnRimuovi.onclick = () => { domandeCaricate.splice(indice, 1); renderEditorDomande(); };
+    intestazione.appendChild(btnRimuovi);
+    riga.appendChild(intestazione);
+
+    const testoArea = document.createElement("textarea");
+    testoArea.placeholder = "Testo della domanda"; testoArea.value = domanda.testo;
+    testoArea.oninput = () => { domanda.testo = testoArea.value; };
+    riga.appendChild(testoArea);
+
+    ["A", "B", "C"].forEach((lettera, k) => {
+      const rigaOpzione = document.createElement("div");
+      rigaOpzione.className = "riga-opzione-editor";
+      const radio = document.createElement("input");
+      radio.type = "radio"; radio.name = "corretta-" + indice; radio.checked = domanda.corretta === k;
+      radio.onchange = () => { domanda.corretta = k; };
+      rigaOpzione.appendChild(radio);
+      const etichetta = document.createElement("label");
+      etichetta.textContent = "Corretta " + lettera;
+      rigaOpzione.appendChild(etichetta);
+      const inputOpzione = document.createElement("input");
+      inputOpzione.type = "text"; inputOpzione.placeholder = "Opzione " + lettera; inputOpzione.value = domanda.opzioni[k] || "";
+      inputOpzione.oninput = () => { domanda.opzioni[k] = inputOpzione.value; };
+      rigaOpzione.appendChild(inputOpzione);
+      riga.appendChild(rigaOpzione);
+    });
+    editor.appendChild(riga);
+  });
+
+  const btnAggiungi = document.createElement("button");
+  btnAggiungi.type = "button"; btnAggiungi.className = "btn-aggiungi-riga"; btnAggiungi.textContent = "+ Aggiungi domanda";
+  btnAggiungi.onclick = () => { domandeCaricate.push({ id: "D" + (domandeCaricate.length + 1), testo: "", opzioni: ["", "", ""], corretta: 0 }); renderEditorDomande(); };
+  editor.appendChild(btnAggiungi);
+}
+
+let allieviManuale = [];
+
+function stimaCognomeNomeDaStringa(stringa) {
+  const corrispondenza = stringa.match(/^(.*)\s*\(([^)]*)\)\s*$/);
+  const nominativo = corrispondenza ? corrispondenza[1].trim() : stringa.trim();
+  const perid = corrispondenza ? corrispondenza[2].trim() : "";
+  const primoSpazio = nominativo.indexOf(" ");
+  if (primoSpazio === -1) return { cognome: nominativo, nome: "", perid };
+  return { cognome: nominativo.slice(0, primoSpazio), nome: nominativo.slice(primoSpazio + 1), perid };
+}
+
+document.getElementById("btn-toggle-studenti-manuale").addEventListener("click", function() {
+  const editor = document.getElementById("editor-studenti-manuale");
+  const aperto = !editor.classList.contains("nascosto");
+  if (aperto) { editor.classList.add("nascosto"); this.textContent = "Inserisci o modifica allievi manualmente"; }
+  else {
+    if (allieviManuale.length === 0) allieviManuale = (studentiCaricati && studentiCaricati.length > 0) ? studentiCaricati.map(stimaCognomeNomeDaStringa) : [{ cognome: "", nome: "", perid: "" }];
+    renderEditorStudenti();
+    editor.classList.remove("nascosto");
+    this.textContent = "Nascondi editor allievi";
+  }
+});
+
+function sincronizzaStudentiCaricatiDaManuale() {
+  studentiCaricati = allieviManuale.map(a => {
+    const combinato = (a.cognome.trim() + " " + a.nome.trim()).trim();
+    return a.perid.trim() ? (combinato + " (" + a.perid.trim() + ")") : combinato;
+  }).filter(s => s);
+}
+
+function renderEditorStudenti() {
+  const editor = document.getElementById("editor-studenti-manuale");
+  editor.innerHTML = "";
+  const tabella = document.createElement("table");
+  tabella.className = "tabella-editor-allievi";
+  const thead = document.createElement("thead");
+  thead.innerHTML = "<tr><th>Cognome</th><th>Nome</th><th>PERID</th><th></th></tr>";
+  tabella.appendChild(thead);
+  const corpo = document.createElement("tbody");
+  allieviManuale.forEach((allievo, indice) => {
+    const riga = document.createElement("tr");
+    const cellaCognome = document.createElement("td");
+    const inputCognome = document.createElement("input");
+    inputCognome.type = "text"; inputCognome.placeholder = "Cognome"; inputCognome.value = allievo.cognome;
+    inputCognome.oninput = () => { allievo.cognome = inputCognome.value; sincronizzaStudentiCaricatiDaManuale(); };
+    cellaCognome.appendChild(inputCognome); riga.appendChild(cellaCognome);
+
+    const cellaNome = document.createElement("td");
+    const inputNome = document.createElement("input");
+    inputNome.type = "text"; inputNome.placeholder = "Nome"; inputNome.value = allievo.nome;
+    inputNome.oninput = () => { allievo.nome = inputNome.value; sincronizzaStudentiCaricatiDaManuale(); };
+    cellaNome.appendChild(inputNome); riga.appendChild(cellaNome);
+
+    const cellaPerid = document.createElement("td");
+    const inputPerid = document.createElement("input");
+    inputPerid.type = "text"; inputPerid.placeholder = "PERID"; inputPerid.value = allievo.perid;
+    inputPerid.oninput = () => { allievo.perid = inputPerid.value; sincronizzaStudentiCaricatiDaManuale(); };
+    cellaPerid.appendChild(inputPerid); riga.appendChild(cellaPerid);
+
+    const cellaAzione = document.createElement("td");
+    const btnRimuovi = document.createElement("button");
+    btnRimuovi.type = "button"; btnRimuovi.className = "btn-rimuovi-riga"; btnRimuovi.textContent = "×"; btnRimuovi.title = "Rimuovi questo allievo";
+    btnRimuovi.onclick = () => { allieviManuale.splice(indice, 1); sincronizzaStudentiCaricatiDaManuale(); renderEditorStudenti(); };
+    cellaAzione.appendChild(btnRimuovi); riga.appendChild(cellaAzione);
+
+    corpo.appendChild(riga);
+  });
+  tabella.appendChild(corpo);
+  editor.appendChild(tabella);
+
+  const btnAggiungi = document.createElement("button");
+  btnAggiungi.type = "button"; btnAggiungi.className = "btn-aggiungi-riga"; btnAggiungi.textContent = "+ Aggiungi allievo";
+  btnAggiungi.onclick = () => { allieviManuale.push({ cognome: "", nome: "", perid: "" }); renderEditorStudenti(); };
+  editor.appendChild(btnAggiungi);
+
+  sincronizzaStudentiCaricatiDaManuale();
+}
+
+document.getElementById("btn-salva").addEventListener("click", function() {
+  const nome = document.getElementById("campo-nome-test").value.trim();
+  const pin = document.getElementById("campo-pin-test").value.trim();
+  const nessunTimer = document.getElementById("campo-nessun-timer").checked;
+  let durataMinuti = nessunTimer ? 0 : parseInt(document.getElementById("campo-durata-test").value.trim(), 10);
+  if (!nessunTimer && (!durataMinuti || durataMinuti <= 0)) { mostraMessaggio("Inserisci una durata valida in minuti, oppure spunta 'Nessun limite di tempo'.", "errore"); return; }
+  if (!nome) { mostraMessaggio("Inserisci un nome per il test.", "errore"); return; }
+  if (!pin) { mostraMessaggio("Inserisci un PIN.", "errore"); return; }
+
+  if (domandeCaricate) domandeCaricate = domandeCaricate.filter(d => d.testo && d.testo.trim());
+  if (studentiCaricati) studentiCaricati = studentiCaricati.filter(s => s && s.trim());
+
+  if (!idInModifica && (!domandeCaricate || !studentiCaricati || domandeCaricate.length === 0 || studentiCaricati.length === 0)) {
+    mostraMessaggio("Per un nuovo test servono sia le domande sia l'elenco allievi (da file Excel o inseriti manualmente).", "errore");
+    return;
+  }
+
+  const bottone = document.getElementById("btn-salva");
+  bottone.disabled = true; bottone.textContent = "Salvataggio in corso...";
+  bloccaInterfaccia();
+
+  const fine = () => { bottone.disabled = false; bottone.textContent = "Salva test"; };
+
+  const promessa = idInModifica
+    ? aggiornaTest(idInModifica, nome, pin, durataMinuti, domandeCaricate, studentiCaricati)
+    : creaTest(nome, pin, durataMinuti, domandeCaricate, studentiCaricati);
+
+  promessa.then(() => {
+    fine();
+    mostraMessaggio(idInModifica ? "Test aggiornato con successo." : "Nuovo test creato con successo. Ricordati di attivarlo quando vuoi usarlo.", "ok");
+    resetForm();
+    caricaElenco();
+  }).catch(e => { fine(); erroreConSblocco(e); });
+});
+
+// L'aggiornamento automatico e il tick del countdown partono solo
+// dopo il login, dalla chiamata a caricaElenco() dentro
+// onAuthStateChanged qui sopra.
+setInterval(() => { if (!document.getElementById("contenuto-principale").classList.contains("nascosto")) caricaElenco(); }, 3000);
+</script>
+
+</body>
+</html>
