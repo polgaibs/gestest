@@ -195,7 +195,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 2</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 3</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -234,6 +234,15 @@
     <div class="valore colore-rosso" id="stat-uscite-focus">0</div>
     <div class="nota" id="stat-uscite-focus-nota">su 0 consegnati</div>
   </div>
+</div>
+
+<div class="sezione barra-laterale-rosso chiusa" id="sezione-elenco-uscite-focus">
+  <div class="intestazione-sezione" data-toggle="sezione-elenco-uscite-focus">
+    <span class="titolo">⚠️ Elenco uscite dal focus</span>
+    <span class="conteggio" id="conteggio-elenco-uscite-focus">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-elenco-uscite-focus"></div>
 </div>
 
 <div class="sezione barra-laterale-verde" id="sezione-consegnati">
@@ -544,6 +553,23 @@ function ricalcolaERendi() {
   const conUsciteFocus = secchi.consegnato.filter(nome => (risultatiCorrenti.get(normalizza(nome))?.usciteFocus || 0) > 0);
   document.getElementById("stat-uscite-focus").textContent = conUsciteFocus.length;
   document.getElementById("stat-uscite-focus-nota").textContent = "su " + secchi.consegnato.length + " consegnati";
+
+  document.getElementById("conteggio-elenco-uscite-focus").textContent = conUsciteFocus.length;
+  const corpoElencoUsciteFocus = document.getElementById("corpo-elenco-uscite-focus");
+  if (conUsciteFocus.length === 0) {
+    corpoElencoUsciteFocus.innerHTML = '<div class="sezione-vuota">Nessuna uscita rilevata.</div>';
+  } else {
+    const elencoOrdinato = [...conUsciteFocus].sort((a, b) => {
+      const dA = risultatiCorrenti.get(normalizza(a)), dB = risultatiCorrenti.get(normalizza(b));
+      return (dB.usciteFocus - dA.usciteFocus) || a.localeCompare(b, "it");
+    });
+    corpoElencoUsciteFocus.innerHTML = elencoOrdinato.map(nome => {
+      const d = risultatiCorrenti.get(normalizza(nome));
+      const etichettaVolte = d.usciteFocus === 1 ? "1 volta" : (d.usciteFocus + " volte");
+      return '<div class="nome-voce">' + nome.replace(/</g, "&lt;") +
+        ' <span class="badge-uscita-focus">' + etichettaVolte + ' — ' + formattaDurata(d.tempoFuoriFocusMs) + '</span></div>';
+    }).join("");
+  }
 
   popolaSezione("consegnati", secchi.consegnato, true);
   popolaSezione("svolgimento", secchi.svolgimento);
