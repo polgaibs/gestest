@@ -495,6 +495,34 @@ function osservaPuntatoreAttivo() {
   });
 }
 
+// Osservatore leggero, attivo solo tra il caricamento del test e la
+// pressione del pulsante di avvio (schermate identificazione e
+// istruzioni). In questa finestra non è ancora collegato
+// l'osservatore principale (quello vero parte solo con
+// entraInSalaDAttesa o avviaOppureRiprendi), quindi senza questo qui
+// una disattivazione totale del test da parte dell'admin passerebbe
+// inosservata finché l'allievo non prova ad andare avanti.
+let annullaOsservatoreDisattivazionePrecoce = null;
+function osservaDisattivazionePrecoce() {
+  if (annullaOsservatoreDisattivazionePrecoce) return;
+  annullaOsservatoreDisattivazionePrecoce = onSnapshot(riferimentoTest(), (istantanea) => {
+    const dati = istantanea.exists() ? istantanea.data() : {};
+    if (dati.attivo === false) {
+      fermaOsservatoreDisattivazionePrecoce();
+      ID_TEST = "";
+      document.getElementById("schermata-id").classList.add("nascosto");
+      document.getElementById("schermata-istruzioni").classList.add("nascosto");
+      mostraNessunTestAttivo();
+    }
+  });
+}
+function fermaOsservatoreDisattivazionePrecoce() {
+  if (annullaOsservatoreDisattivazionePrecoce) {
+    annullaOsservatoreDisattivazionePrecoce();
+    annullaOsservatoreDisattivazionePrecoce = null;
+  }
+}
+
 async function caricaTestAttivo() {
   try {
     const puntatore = await getDoc(doc(db, "stato", "attivo"));
@@ -541,11 +569,13 @@ async function caricaTestAttivo() {
     if (salvato && salvato.idTest === ID_TEST && salvato.nome && !salvato.inviato) {
       nomeStudente = salvato.nome;
       document.getElementById("schermata-istruzioni").classList.remove("nascosto");
+      osservaDisattivazionePrecoce();
       avviaOppureRiprendi();
       return;
     }
 
     document.getElementById("schermata-id").classList.remove("nascosto");
+    osservaDisattivazionePrecoce();
   } catch (errore) {
     mostraNessunTestAttivo();
   }
@@ -796,6 +826,7 @@ document.getElementById("btn-avvia").addEventListener("click", () => {
 });
 
 function entraInSalaDAttesa() {
+  fermaOsservatoreDisattivazionePrecoce();
   document.getElementById("schermata-istruzioni").classList.add("nascosto");
   document.getElementById("nome-allievo-attesa").textContent = nomeSenzaPerid(nomeStudente);
   document.getElementById("schermata-attesa").classList.remove("nascosto");
@@ -936,6 +967,7 @@ function gestisciCambiamentoStatoTest(dati) {
 }
 
 function avviaOppureRiprendi(secondiForzati) {
+  fermaOsservatoreDisattivazionePrecoce();
   statoQuizAvviatoLocalmente = true;
   osservaStatoTest();
   avviaControlloTestAttivo();
