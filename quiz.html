@@ -236,7 +236,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 6</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 7</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -972,6 +972,15 @@ function gestisciCambiamentoStatoTest(dati) {
 function avviaOppureRiprendi(secondiForzati) {
   fermaOsservatoreDisattivazionePrecoce();
   statoQuizAvviatoLocalmente = true;
+
+  // Riparte sempre da qui, non solo dalla sala d'attesa: copre sia
+  // l'avvio normale sia il rientro dopo un ricaricamento accidentale
+  // a test già iniziato, che altrimenti lascerebbe la presenza ferma
+  // su Firestore anche se l'allievo sta rispondendo attivamente.
+  statoPresenzaAttuale = "in_corso";
+  scriviPresenza("in_corso");
+  avviaPing("in_corso");
+
   osservaStatoTest();
   avviaControlloTestAttivo();
 
