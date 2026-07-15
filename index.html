@@ -336,7 +336,7 @@
 </head>
 <body>
 
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 1</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 2</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -509,6 +509,13 @@ let NUMERO_STUDENTI_TOTALE = 0;
 let pollingStatistiche = null;
 let annullaOsservatorePuntatore = null;
 let annullaOsservatoreTest = null;
+// Contatore di generazione: ogni volta che ci si collega a un nuovo
+// osservatore sul documento test, questo numero cambia. Una risposta
+// Firestore che arriva in ritardo da un osservatore ormai superato
+// (per esempio perché nel frattempo il test è stato disattivato e
+// subito riattivato) porta con sé la generazione vecchia, e viene
+// scartata invece di sovrascrivere per errore lo stato più recente.
+let generazioneOsservatoreTest = 0;
 
 function resettaPannelloControllo() {
   const bottoneAvvia = document.getElementById("btn-avvia-tutti");
@@ -621,6 +628,7 @@ function mostraNessunTestAttivo() {
   document.getElementById("corpo").classList.add("a-colonna-singola");
   if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
   fermaCountdownLanding();
+  generazioneOsservatoreTest++;
   if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
   ID_TEST_ATTIVO = "";
   TEST_HA_TIMER = false;
@@ -634,9 +642,8 @@ function collegaOsservatorePuntatore() {
       mostraNessunTestAttivo();
       return;
     }
-    if (idAttivo === ID_TEST_ATTIVO) return; // nessun cambiamento reale
+    if (idAttivo === ID_TEST_ATTIVO && annullaOsservatoreTest) return; // già collegato, nessun cambiamento reale
 
-    if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
     resettaPannelloControllo();
     ID_TEST_ATTIVO = idAttivo;
     collegaOsservatoreTest(idAttivo);
@@ -650,7 +657,17 @@ function collegaOsservatorePuntatore() {
 // (avvio, pausa, chiusura), quindi un'unica lettura in tempo reale
 // basta per aggiornare l'intera pagina.
 function collegaOsservatoreTest(idTest) {
+  if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+  generazioneOsservatoreTest++;
+  const generazioneAlMomentoDelCollegamento = generazioneOsservatoreTest;
+
   annullaOsservatoreTest = onSnapshot(riferimentoTest(idTest), (istantanea) => {
+    // Se nel frattempo ci si è già ricollegati a un test più recente
+    // (o si è tornati a "nessun test attivo"), questa risposta
+    // appartiene a un osservatore ormai superato: va ignorata, non
+    // deve sovrascrivere lo stato attuale.
+    if (generazioneAlMomentoDelCollegamento !== generazioneOsservatoreTest) return;
+
     mostraBannerConnessione(false);
     if (!istantanea.exists() || istantanea.data().attivo !== true) {
       mostraNessunTestAttivo();
@@ -659,6 +676,7 @@ function collegaOsservatoreTest(idTest) {
     document.getElementById("blocco-caricamento").classList.add("nascosto");
     gestisciStatoTestLocandina(istantanea.data());
   }, () => {
+    if (generazioneAlMomentoDelCollegamento !== generazioneOsservatoreTest) return;
     mostraBannerConnessione(true);
   });
 }
