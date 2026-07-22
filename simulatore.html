@@ -106,6 +106,7 @@
   button:disabled { background: #3a445a; cursor: not-allowed; }
   button.secondario { background: #263351; }
   button.pericolo { background: var(--rosso); }
+  button.oro { background: var(--oro); color: #1d1d1d; font-weight: 700; }
   button.login { background: white; color: #1d1d1d; }
   input[type="text"], input[type="number"] {
     background: #0e1626;
@@ -230,7 +231,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 9</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 10</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -558,23 +559,24 @@ function aggiornaInterfaccia() {
   lista.innerHTML = righeHtml.join("");
 }
 let intervalloRefreshUI = setInterval(aggiornaInterfaccia, 500);
-let reportGiaScaricatoPerQuestaCorsa = false;
+let reportSegnalatoPerQuestaCorsa = false;
 
 // Se tutti i bot arrivano a uno stato finale da soli (nessuno più
 // "connessione"/"attesa"/"in svolgimento"), la corsa è di fatto
-// conclusa anche senza premere "Ferma": scarico il report una sola
-// volta in automatico, così non c'è bisogno di controllare a vista
-// quando finisce.
+// conclusa anche senza premere "Ferma": NON scarico nulla in
+// automatico, mi limito a segnalarlo e a far risaltare il pulsante,
+// il download parte solo se lo clicchi tu.
 setInterval(() => {
-  if (!simulazioneInCorso || numeroBotRichiesti === 0 || reportGiaScaricatoPerQuestaCorsa) return;
+  if (!simulazioneInCorso || numeroBotRichiesti === 0 || reportSegnalatoPerQuestaCorsa) return;
   const valori = Array.from(botAttivi.values());
   if (valori.length < numeroBotRichiesti) return; // non tutti i bot sono ancora nemmeno partiti
   const finiti = valori.filter(b => ["consegnato", "abbandonato", "errore"].includes(b.stato)).length;
   if (finiti === numeroBotRichiesti) {
-    reportGiaScaricatoPerQuestaCorsa = true;
+    reportSegnalatoPerQuestaCorsa = true;
     orarioFineCorsa = new Date();
-    log("Tutti i bot hanno raggiunto uno stato finale: corsa conclusa, scarico il report.");
-    generaEScaricaReport().catch(e => log("Errore nella generazione del report: " + e.message, "errore"));
+    log("Tutti i bot hanno raggiunto uno stato finale: corsa conclusa, il report è pronto da scaricare.", "ok");
+    const bottoneReport = document.getElementById("btn-scarica-report");
+    bottoneReport.classList.add("oro");
   }
 }, 3000);
 
@@ -826,7 +828,8 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
   elencoErroriCorsa = [];
   orarioInizioCorsa = new Date();
   orarioFineCorsa = null;
-  reportGiaScaricatoPerQuestaCorsa = false;
+  reportSegnalatoPerQuestaCorsa = false;
+  document.getElementById("btn-scarica-report").classList.remove("oro");
 
   document.getElementById("btn-avvia").disabled = true;
   document.getElementById("btn-ferma").disabled = false;
@@ -851,19 +854,43 @@ const COLORE_OK = "FFB6E3B6";
 const COLORE_ATTENZIONE = "FFFFE1B0";
 const COLORE_ERRORE = "FFF4B6B6";
 
+let ultimoReportDisponibile = null;
+
+function catturaIstantaneaReport() {
+  if (numeroBotRichiesti === 0) return;
+  ultimoReportDisponibile = {
+    nomeTest: NOME_TEST, idTest: ID_TEST,
+    orarioInizio: orarioInizioCorsa, orarioFine: orarioFineCorsa || new Date(),
+    botRichiesti: numeroBotRichiesti, botConnessi: numeroBotConnessi,
+    botAttivi: new Map(botAttivi),
+    rtt: [...tuttiRttCorsa],
+    errori: [...elencoErroriCorsa]
+  };
+}
+
 async function generaEScaricaReport() {
-  if (!orarioInizioCorsa) {
+  const datiLive = numeroBotRichiesti > 0 && orarioInizioCorsa;
+  const sorgente = datiLive ? {
+    nomeTest: NOME_TEST, idTest: ID_TEST,
+    orarioInizio: orarioInizioCorsa, orarioFine: orarioFineCorsa || new Date(),
+    botRichiesti: numeroBotRichiesti, botConnessi: numeroBotConnessi,
+    botAttivi: botAttivi,
+    rtt: tuttiRttCorsa, errori: elencoErroriCorsa
+  } : ultimoReportDisponibile;
+
+  if (!sorgente) {
     log("Nessuna corsa registrata da mettere nel report.", "errore");
     return;
   }
-  const fineEffettiva = orarioFineCorsa || new Date();
-  const valori = Array.from(botAttivi.values());
+
+  const fineEffettiva = sorgente.orarioFine;
+  const valori = Array.from(sorgente.botAttivi.values());
   const consegnati = valori.filter(b => b.stato === "consegnato").length;
   const abbandonati = valori.filter(b => b.stato === "abbandonato").length;
   const errori = valori.filter(b => b.stato === "errore").length;
   const inCorsoAllaFine = valori.filter(b => b.stato === "attesa" || b.stato === "in_corso" || b.stato === "connessione").length;
 
-  const rttOrdinati = [...tuttiRttCorsa].sort((a, b) => a - b);
+  const rttOrdinati = [...sorgente.rtt].sort((a, b) => a - b);
   const rttMedio = rttOrdinati.length ? Math.round(rttOrdinati.reduce((a, b) => a + b, 0) / rttOrdinati.length) : null;
   const rttMinimo = rttOrdinati.length ? rttOrdinati[0] : null;
   const rttMassimo = rttOrdinati.length ? rttOrdinati[rttOrdinati.length - 1] : null;
@@ -891,16 +918,16 @@ async function generaEScaricaReport() {
 
   rigaTitolo("GesTest — Report tecnico simulazione di carico");
   riepilogo.addRow([]);
-  rigaDato("Test usato per il collaudo", NOME_TEST || ID_TEST);
-  rigaDato("ID test", ID_TEST);
-  rigaDato("Inizio corsa", orarioInizioCorsa.toLocaleString("it-IT"));
+  rigaDato("Test usato per il collaudo", sorgente.nomeTest || sorgente.idTest);
+  rigaDato("ID test", sorgente.idTest);
+  rigaDato("Inizio corsa", sorgente.orarioInizio.toLocaleString("it-IT"));
   rigaDato("Fine corsa", fineEffettiva.toLocaleString("it-IT"));
-  rigaDato("Durata corsa", formattaDurataSecondi(Math.round((fineEffettiva - orarioInizioCorsa) / 1000)));
+  rigaDato("Durata corsa", formattaDurataSecondi(Math.round((fineEffettiva - sorgente.orarioInizio) / 1000)));
   riepilogo.addRow([]);
 
   rigaTitolo("Connessioni");
-  rigaDato("Bot richiesti", numeroBotRichiesti);
-  rigaDato("Bot avviati (connessi)", numeroBotConnessi);
+  rigaDato("Bot richiesti", sorgente.botRichiesti);
+  rigaDato("Bot avviati (connessi)", sorgente.botConnessi);
   rigaDato("Ancora in corso alla fine", inCorsoAllaFine, inCorsoAllaFine > 0 ? COLORE_ATTENZIONE : COLORE_OK);
   riepilogo.addRow([]);
 
@@ -908,8 +935,8 @@ async function generaEScaricaReport() {
   rigaDato("Consegnati", consegnati, COLORE_OK);
   rigaDato("Abbandonati (simulati)", abbandonati);
   rigaDato("Errori", errori, errori > 0 ? COLORE_ERRORE : COLORE_OK);
-  rigaDato("Percentuale di successo", numeroBotRichiesti ? Math.round((consegnati / numeroBotRichiesti) * 1000) / 10 + " %" : "—",
-    numeroBotRichiesti && (consegnati / numeroBotRichiesti) >= 0.95 ? COLORE_OK : COLORE_ATTENZIONE);
+  rigaDato("Percentuale di successo", sorgente.botRichiesti ? Math.round((consegnati / sorgente.botRichiesti) * 1000) / 10 + " %" : "—",
+    sorgente.botRichiesti && (consegnati / sorgente.botRichiesti) >= 0.95 ? COLORE_OK : COLORE_ATTENZIONE);
   riepilogo.addRow([]);
 
   rigaTitolo("Tempi di scrittura su Firestore (RTT)");
@@ -926,19 +953,19 @@ async function generaEScaricaReport() {
   dettaglio.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } }; });
   const etichetteStato = { connessione: "Connessione...", attesa: "In attesa", in_corso: "In svolgimento", consegnato: "Consegnato", abbandonato: "Abbandonato", errore: "Errore" };
   const coloreStato = { consegnato: COLORE_OK, errore: COLORE_ERRORE, abbandonato: COLORE_ATTENZIONE };
-  Array.from(botAttivi.entries()).sort((a, b) => a[0].localeCompare(b[0], "it")).forEach(([nome, info]) => {
+  Array.from(sorgente.botAttivi.entries()).sort((a, b) => a[0].localeCompare(b[0], "it")).forEach(([nome, info]) => {
     const r = dettaglio.addRow([nome, etichetteStato[info.stato] || info.stato]);
     if (coloreStato[info.stato]) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: coloreStato[info.stato] } };
   });
   dettaglio.views = [{ state: "frozen", ySplit: 1 }];
 
   // ---- Foglio 3: Errori (solo se ce ne sono) ----
-  if (elencoErroriCorsa.length > 0) {
+  if (sorgente.errori.length > 0) {
     const foglioErrori = cartella.addWorksheet("Errori");
     foglioErrori.columns = [{ header: "Orario", width: 12 }, { header: "Bot", width: 30 }, { header: "Fase", width: 14 }, { header: "Messaggio", width: 60 }];
     foglioErrori.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     foglioErrori.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } }; });
-    elencoErroriCorsa.forEach(e => {
+    sorgente.errori.forEach(e => {
       const r = foglioErrori.addRow([e.orario, e.nomeBot, e.fase, e.messaggio]);
       r.getCell(4).alignment = { wrapText: true };
     });
@@ -948,7 +975,7 @@ async function generaEScaricaReport() {
   const url = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = "Report simulazione - " + (NOME_TEST || ID_TEST) + " - " + fineEffettiva.toLocaleDateString("it-IT").replace(/\//g, "-") + ".xlsx";
+  link.download = "Report simulazione - " + (sorgente.nomeTest || sorgente.idTest) + " - " + fineEffettiva.toLocaleDateString("it-IT").replace(/\//g, "-") + ".xlsx";
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -962,6 +989,7 @@ function formattaDurataSecondi(secondiTotali) {
 }
 
 document.getElementById("btn-scarica-report").addEventListener("click", () => {
+  document.getElementById("btn-scarica-report").classList.remove("oro");
   generaEScaricaReport().catch(e => log("Errore nella generazione del report: " + e.message, "errore"));
 });
 
@@ -974,11 +1002,12 @@ document.getElementById("btn-ferma").addEventListener("click", async () => {
   botInAttesaDiAvvio.clear();
   orarioFineCorsa = new Date();
 
-  // Il report va generato PRIMA di azzerare i contatori qui sotto,
-  // altrimenti scaricherebbe una corsa già vuota.
-  if (numeroBotRichiesti > 0 && !reportGiaScaricatoPerQuestaCorsa) {
-    reportGiaScaricatoPerQuestaCorsa = true;
-    try { await generaEScaricaReport(); } catch (e) { log("Errore nella generazione del report: " + e.message, "errore"); }
+  // Catturo un'istantanea dei dati PRIMA di azzerare i contatori qui
+  // sotto, così il pulsante "Scarica report Excel" resta utilizzabile
+  // anche dopo. Nessun download automatico: parte solo se lo clicchi.
+  catturaIstantaneaReport();
+  if (numeroBotRichiesti > 0) {
+    document.getElementById("btn-scarica-report").classList.add("oro");
   }
 
   // Azzero i contatori visivi: bot avviati, RTT medio, errori. La
