@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 21</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 22</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -640,11 +640,6 @@ function aggiornaVisualeCountdownLanding() {
   }
 }
 
-function avviaCountdownLanding() {
-  aggiornaVisualeCountdownLanding();
-  programmaProssimoBattitoCountdown();
-}
-
 function programmaProssimoBattitoCountdown() {
   if (intervalloCountdownLanding) clearTimeout(intervalloCountdownLanding);
   const ritardoAlProssimoSecondo = 1000 - (Date.now() % 1000);
@@ -830,7 +825,15 @@ function gestisciStatoTestLocandina(dati) {
     document.getElementById("testo-durata-landing").classList.add("nascosto");
     document.getElementById("contenitore-countdown-landing").classList.remove("nascosto");
     if (dati.pausaTimestamp || calcolaSecondiRimasti(datiTimerCorrente) > 0) {
-      avviaCountdownLanding();
+      // Aggiorno subito il numero con i dati appena arrivati dal
+      // server (corregge eventuali scarti), ma faccio ripartire il
+      // ciclo che avanza un secondo alla volta SOLO se non sta già
+      // girando: altrimenti, richiamato a ogni polling ogni 2
+      // secondi, lo interromperebbe e riavvierebbe di continuo,
+      // dando quell'effetto a scatti invece di un secondo dopo
+      // l'altro con calma.
+      aggiornaVisualeCountdownLanding();
+      if (!intervalloCountdownLanding) programmaProssimoBattitoCountdown();
     } else {
       aggiornaVisualeCountdownLanding();
       fermaCountdownLanding();
