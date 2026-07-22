@@ -197,7 +197,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 7</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 8</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -215,6 +215,11 @@
   <div class="statistica">
     <div class="etichetta">Allievi in elenco</div>
     <div class="valore" id="stat-totale">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Connessi</div>
+    <div class="valore colore-blu" id="stat-connessi">0</div>
+    <div class="nota">pagina aperta in questo momento</div>
   </div>
   <div class="statistica">
     <div class="etichetta">Consegnati</div>
@@ -603,6 +608,14 @@ function ricalcolaERendi() {
   Object.values(secchi).forEach(elenco => elenco.sort((a, b) => a.localeCompare(b, "it")));
 
   document.getElementById("stat-totale").textContent = STUDENTI.length;
+
+  let connessi = 0;
+  const ora = Date.now();
+  presenzeCorrenti.forEach(d => {
+    if (d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS) connessi++;
+  });
+  document.getElementById("stat-connessi").textContent = connessi;
+
   document.getElementById("stat-consegnati").textContent = secchi.consegnato.length;
   document.getElementById("stat-svolgimento").textContent = secchi.svolgimento.length;
   document.getElementById("stat-attesa").textContent = secchi.attesa.length;

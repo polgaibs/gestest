@@ -230,7 +230,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 6</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 8</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -281,9 +281,9 @@
     <div class="nota" id="stat-connessioni-nota">su 0 richiesti</div>
   </div>
   <div class="statistica">
-    <div class="etichetta">Presenze Firebase</div>
+    <div class="etichetta">Connessi</div>
     <div class="valore" id="stat-presenze">0</div>
-    <div class="nota">documenti bot in "presenze"</div>
+    <div class="nota">in attesa, in svolgimento o completato</div>
   </div>
   <div class="statistica">
     <div class="etichetta">In attesa</div>
@@ -522,7 +522,7 @@ function aggiornaInterfaccia() {
 
   document.getElementById("stat-connessioni").textContent = numeroBotConnessi;
   document.getElementById("stat-connessioni-nota").textContent = "su " + numeroBotRichiesti + " richiesti";
-  document.getElementById("stat-presenze").textContent = inAttesa + inSvolgimento;
+  document.getElementById("stat-presenze").textContent = inAttesa + inSvolgimento + consegnati;
   document.getElementById("stat-attesa").textContent = inAttesa;
   document.getElementById("stat-svolgimento").textContent = inSvolgimento;
   document.getElementById("stat-consegnati").textContent = consegnati;
@@ -632,35 +632,37 @@ async function eseguiBot(nomeBot, percentualeAbbandono) {
     }, { merge: true }).catch(() => {});
   }, 25000);
 
-  // Un bot su tanti (percentuale configurabile) abbandona invece di
-  // consegnare, per simulare chi si scollega senza finire, utile per
-  // vedere come si comportano i contatori "mancanti" sulla locandina.
+  aspettaAvvioPoiRispondi(nomeBot, pingId, percentualeAbbandono);
+}
+
+const botInAttesaDiAvvio = new Map();
+function aspettaAvvioPoiRispondi(nomeBot, pingId, percentualeAbbandono) {
+  if (testAvviatoAdesso) {
+    procediConRisposta(nomeBot, pingId, percentualeAbbandono);
+  } else {
+    botInAttesaDiAvvio.set(nomeBot, percentualeAbbandono);
+  }
+}
+
+function procediConRisposta(nomeBot, pingId, percentualeAbbandono) {
+  if (!simulazioneInCorso) return;
+  const info = botAttivi.get(nomeBot);
+  if (!info || info.stato === "abbandonato" || info.stato === "errore") return;
+  botAttivi.set(nomeBot, { stato: "in_corso" });
+
+  // L'abbandono si decide da qui in poi, non più in sala d'attesa:
+  // simula un allievo che inizia a rispondere e poi smette, non uno
+  // che sparisce prima ancora che il test sia partito per qualcuno.
   if (Math.random() * 100 < percentualeAbbandono) {
-    const ritardoAbbandono = 3000 + Math.random() * 15000;
+    const ritardoAbbandono = 3000 + Math.random() * 20000;
     pianificaTimer(() => {
+      const infoAttuale = botAttivi.get(nomeBot);
+      if (!infoAttuale || infoAttuale.stato !== "in_corso") return;
       botAttivi.set(nomeBot, { stato: "abbandonato" });
       clearInterval(pingId);
     }, ritardoAbbandono);
     return;
   }
-
-  aspettaAvvioPoiRispondi(nomeBot, pingId);
-}
-
-const botInAttesaDiAvvio = new Set();
-function aspettaAvvioPoiRispondi(nomeBot, pingId) {
-  if (testAvviatoAdesso) {
-    procediConRisposta(nomeBot, pingId);
-  } else {
-    botInAttesaDiAvvio.add(nomeBot);
-  }
-}
-
-function procediConRisposta(nomeBot, pingId) {
-  if (!simulazioneInCorso) return;
-  const info = botAttivi.get(nomeBot);
-  if (!info || info.stato === "abbandonato" || info.stato === "errore") return;
-  botAttivi.set(nomeBot, { stato: "in_corso" });
 
   const tempoMinimoMs = Number(document.getElementById("campo-tempo-risposta-min").value || 0) * 1000;
   const tempoMassimoMsRichiesto = Number(document.getElementById("campo-tempo-risposta").value || 90) * 1000;
@@ -724,10 +726,10 @@ function collegaOsservatoreAvvio() {
     if (dati.avviatoTimestamp && !testAvviatoAdesso) {
       testAvviatoAdesso = true;
       log("Il test risulta avviato: i bot in attesa iniziano a rispondere.", "ok");
-      botInAttesaDiAvvio.forEach(nomeBot => {
+      botInAttesaDiAvvio.forEach((percentualeAbbandono, nomeBot) => {
         const info = botAttivi.get(nomeBot);
         if (info && info.stato === "attesa") {
-          procediConRisposta(nomeBot, null);
+          procediConRisposta(nomeBot, null, percentualeAbbandono);
         }
       });
       botInAttesaDiAvvio.clear();
