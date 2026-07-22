@@ -231,7 +231,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 14</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 15</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -832,14 +832,42 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
     log("Il test attivo non ha nessun allievo in elenco: non c'è nessun nome da assegnare ai bot.", "errore");
     return;
   }
+
+  const bottoneAvvia = document.getElementById("btn-avvia");
+  bottoneAvvia.disabled = true;
+  bottoneAvvia.textContent = "Controllo chi ha già consegnato...";
+
+  // Chi ha già un risultato su questo test, in una sessione precedente,
+  // non può rifarlo davvero: quiz.html lo bloccherebbe con "Test già
+  // completato". I bot devono rispettare lo stesso limite, altrimenti
+  // riusano per sbaglio un nome già consegnato e si scontrano con la
+  // stessa protezione anti-doppio-invio (permission-denied), invece di
+  // simulare gente nuova come farebbe una sessione vera con un gruppo
+  // diverso.
+  let nomiGiaConsegnati = new Set();
+  try {
+    const istantaneaRisultati = await getDocs(query(riferimentoRisultati(ID_TEST), where("annullato", "==", false)));
+    istantaneaRisultati.forEach(d => {
+      const nome = (d.data().nome || "").trim();
+      if (nome) nomiGiaConsegnati.add(nome);
+    });
+  } catch (e) {
+    bottoneAvvia.disabled = false;
+    bottoneAvvia.textContent = "▶ Avvia simulazione";
+    log("Impossibile controllare chi ha già consegnato: " + e.message, "errore");
+    return;
+  }
+  bottoneAvvia.disabled = false;
+  bottoneAvvia.textContent = "▶ Avvia simulazione";
+
   // Un assente non può mai avviare davvero il quiz: quiz.html lo
   // blocca prima ancora della sala d'attesa. I bot devono rispettare
   // lo stesso limite, altrimenti la simulazione userebbe per sbaglio
   // anche i nomi di chi è segnato assente, cosa che non può succedere
   // con un allievo vero.
-  const nomiDisponibili = STUDENTI.filter(nome => !ASSENTI_ATTUALI.has(nome));
+  const nomiDisponibili = STUDENTI.filter(nome => !ASSENTI_ATTUALI.has(nome) && !nomiGiaConsegnati.has(nome));
   if (nomiDisponibili.length === 0) {
-    log("Tutti gli allievi in elenco risultano segnati assenti per questo test: nessun nome disponibile per i bot.", "errore");
+    log("Tutti gli allievi disponibili (esclusi assenti e chi ha già consegnato) sono stati usati: nessun nome nuovo per i bot su questo test.", "errore");
     return;
   }
 
@@ -848,8 +876,8 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
   const percentualeAbbandono = Math.max(0, Math.min(100, parseInt(document.getElementById("campo-abbandoni").value, 10) || 0));
 
   if (numeroBot > nomiDisponibili.length) {
-    log("Richiesti " + numeroBot + " bot, ma i nomi disponibili sono solo " + nomiDisponibili.length +
-      " (" + STUDENTI.length + " allievi in elenco meno " + ASSENTI_ATTUALI.size + " segnati assenti): ogni nome può essere usato una volta sola (come farebbe un allievo vero), quindi limito a " + nomiDisponibili.length + " bot.");
+    log("Richiesti " + numeroBot + " bot, ma i nomi nuovi disponibili sono solo " + nomiDisponibili.length +
+      " (" + STUDENTI.length + " allievi in elenco meno " + ASSENTI_ATTUALI.size + " assenti meno " + nomiGiaConsegnati.size + " che hanno già consegnato): ogni nome può essere usato una volta sola (come farebbe un allievo vero), quindi limito a " + nomiDisponibili.length + " bot.");
     numeroBot = nomiDisponibili.length;
   }
   if (numeroBot > 256) {
@@ -857,6 +885,7 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
   }
 
   const nomiMischiati = mischia(nomiDisponibili).slice(0, numeroBot);
+
 
   simulazioneInCorso = true;
   testAvviatoAdesso = false;
