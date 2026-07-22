@@ -237,7 +237,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 11</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 12</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -1113,6 +1113,45 @@ function calcolaSecondiRimastiDaServer(dati) {
 }
 
 async function avviaOppureRiprendi(secondiForzati) {
+  const salvato = caricaSalvataggio();
+  const staRiprendendo = salvato && salvato.nome === nomeStudente && salvato.idTest === ID_TEST && !salvato.inviato;
+
+  // Se sto riprendendo da un salvataggio locale, non da un innesco
+  // dal vivo della sala d'attesa (quello passa già secondiForzati),
+  // verifico PRIMA sul server che il test sia davvero avviato per
+  // tutti. Senza questo controllo, un salvataggio lasciato per
+  // errore su un dispositivo condiviso (per esempio durante
+  // l'allestimento, testando il quiz con il nome vero di un
+  // allievo) farebbe entrare quell'allievo dritto nel quiz anche se
+  // il responsabile non ha ancora dato il via a nessuno.
+  let datiFreschiPerRipresa = null;
+  if (staRiprendendo && secondiForzati === undefined) {
+    try {
+      const istantanea = await getDoc(riferimentoTest());
+      const dati = istantanea.exists() ? istantanea.data() : {};
+      if (!istantanea.exists() || dati.attivo !== true) {
+        bloccaTestPerDisattivazione();
+        return;
+      }
+      if (!dati.avviatoTimestamp) {
+        // Il salvataggio esiste ma il test non risulta avviato per
+        // nessuno: non era il momento di rientrare nel quiz. Cancello
+        // il salvataggio e mando l'allievo nella vera sala d'attesa,
+        // come chi entra per la prima volta.
+        cancellaSalvataggio();
+        entraInSalaDAttesa();
+        return;
+      }
+      datiFreschiPerRipresa = dati;
+    } catch (e) {
+      // Senza rete non posso verificare: nel dubbio lascio procedere
+      // con la ripresa piuttosto che bloccare chi sta rientrando
+      // legittimamente, i controlli dell'osservatore in tempo reale
+      // correggeranno comunque la situazione appena la connessione
+      // torna.
+    }
+  }
+
   fermaOsservatoreDisattivazionePrecoce();
   statoQuizAvviatoLocalmente = true;
   reclamaSchedaAttiva();
@@ -1128,8 +1167,7 @@ async function avviaOppureRiprendi(secondiForzati) {
   osservaStatoTest();
   avviaControlloTestAttivo();
 
-  const salvato = caricaSalvataggio();
-  if (salvato && salvato.nome === nomeStudente && salvato.idTest === ID_TEST && !salvato.inviato) {
+  if (staRiprendendo) {
     domandeMischiate = salvato.domandeMischiate;
     indiceCorrente = salvato.indiceCorrente;
     risposteDate = salvato.risposteDate;
@@ -1142,35 +1180,25 @@ async function avviaOppureRiprendi(secondiForzati) {
       // quello, non serve un'altra lettura.
       secondiRimasti = secondiForzati;
       avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
-    } else if (DURATA_MINUTI > 0) {
-      // Rientro dopo un ricaricamento: il valore salvato in locale
-      // risale a PRIMA dell'interruzione, quindi non tiene conto del
-      // tempo passato mentre l'allievo era scollegato. Lo scarto e
-      // rileggo lo stato vero dal server: il tempo perso resta perso,
+    } else if (datiFreschiPerRipresa) {
+      // Uso la lettura fresca già fatta qui sopra per verificare
+      // l'avvio, invece di leggere una seconda volta lo stesso
+      // documento: il tempo passato da scollegato resta perso,
       // esattamente come per tutti gli altri.
-      try {
-        const istantanea = await getDoc(riferimentoTest());
-        const dati = istantanea.exists() ? istantanea.data() : {};
-        if (!istantanea.exists() || dati.attivo !== true) {
-          bloccaTestPerDisattivazione();
-          return;
-        }
-        if (dati.terminatoTimestamp) {
-          avviatoTimestampSessione = dati.avviatoTimestamp;
-          secondiRimasti = 0;
-        } else {
-          avviatoTimestampSessione = dati.avviatoTimestamp;
-          secondiRimasti = calcolaSecondiRimastiDaServer(dati);
-        }
-      } catch (e) {
-        // Senza rete non posso verificare: nel dubbio riparto dal
-        // valore salvato piuttosto che bloccare l'allievo, i controlli
-        // dell'osservatore in tempo reale correggeranno la situazione
-        // non appena la connessione torna.
+      const dati = datiFreschiPerRipresa;
+      if (dati.terminatoTimestamp) {
+        avviatoTimestampSessione = dati.avviatoTimestamp;
+        secondiRimasti = 0;
+      } else if (DURATA_MINUTI > 0) {
+        avviatoTimestampSessione = dati.avviatoTimestamp;
+        secondiRimasti = calcolaSecondiRimastiDaServer(dati);
+      } else {
+        avviatoTimestampSessione = dati.avviatoTimestamp;
         secondiRimasti = salvato.secondiRimasti;
-        avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
       }
     } else {
+      // Non è stato possibile leggere dati freschi (rete assente al
+      // momento della verifica): riparto dal valore salvato.
       secondiRimasti = salvato.secondiRimasti;
       avviatoTimestampSessione = salvato.avviatoTimestamp || avviatoTimestampSessione;
     }
