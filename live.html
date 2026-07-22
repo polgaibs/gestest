@@ -197,7 +197,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 5</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 7</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -447,6 +447,24 @@ function renderizzaPannelloTest() {
     }
   }
 
+  // La locandina è l'unica pagina che chiude ufficialmente il turno
+  // allo scadere del tempo: se non risulta aperta (nessun battito
+  // recente) mentre un test a tempo è in corso e non in pausa, il
+  // turno non si chiuderà da solo. Avviso ben visibile invece di
+  // scoprirlo solo a tempo scaduto senza che sia successo nulla.
+  let avvisoLocandinaHtml = "";
+  if (avviato && !inPausa && dati.durataMinuti > 0) {
+    const ultimoBattito = dati.locandinaUltimoAggiornamento;
+    const battitoFresco = ultimoBattito && (Date.now() - Number(ultimoBattito)) <= 40000;
+    if (!battitoFresco) {
+      avvisoLocandinaHtml =
+        '<div class="pannello-test" style="border-color: var(--rosso); margin-top:10px;">' +
+        '⚠️ La locandina non risulta aperta (o non aggiorna): il turno non si chiuderà da sola allo scadere del tempo. ' +
+        'Apri la locandina, oppure ricordati di terminare il turno manualmente da qui quando serve.' +
+        '</div>';
+    }
+  }
+
   pannello.innerHTML =
     '<div class="titolo-test">' + (dati.nome || ID_TEST) + '</div>' +
     '<div class="riga-stato-test">' + badge + timerHtml +
@@ -459,7 +477,7 @@ function renderizzaPannelloTest() {
       '<button id="btn-riprendi" class="oro" ' + (!avviato || !inPausa ? 'disabled' : '') + '>▶ Riprendi</button>' +
       '<button id="btn-termina" class="pericolo" ' + (!avviato ? 'disabled' : '') + '>⏹ Termina manualmente</button>' +
       '<button id="btn-report" class="secondario">📊 Scarica report sessione</button>' +
-    '</div>';
+    '</div>' + avvisoLocandinaHtml;
 
   document.getElementById("btn-avvia").addEventListener("click", avviaTest);
   document.getElementById("btn-pausa").addEventListener("click", pausaTest);

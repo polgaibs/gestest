@@ -337,7 +337,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 4</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 5</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -620,6 +620,28 @@ function registraAvvisoClient(categoria, messaggio) {
 // attiva o disattiva un test, questa pagina lo sa all'istante,
 // senza bisogno di un controllo ogni tre secondi come prima.
 // ============================================================
+// ============================================================
+// BATTITO DELLA LOCANDINA — la locandina è l'unico punto ufficiale
+// che chiude e azzera un turno allo scadere del tempo. Le altre
+// pagine (live, admin) si limitano a leggere questo battito per
+// avvisare se la locandina non risulta aperta, invece di provare a
+// chiudere il turno anche loro: un solo punto di chiusura evita che
+// le sessioni non corrispondano tra una pagina e l'altra.
+// ============================================================
+let intervalloBattitoLocandina = null;
+function inviaBattitoLocandina() {
+  if (!ID_TEST_ATTIVO) return;
+  setDoc(riferimentoTest(ID_TEST_ATTIVO), { locandinaUltimoAggiornamento: Date.now() }, { merge: true }).catch(() => {});
+}
+function avviaBattitoLocandina() {
+  inviaBattitoLocandina();
+  if (intervalloBattitoLocandina) clearInterval(intervalloBattitoLocandina);
+  intervalloBattitoLocandina = setInterval(inviaBattitoLocandina, 15000);
+}
+function fermaBattitoLocandina() {
+  if (intervalloBattitoLocandina) { clearInterval(intervalloBattitoLocandina); intervalloBattitoLocandina = null; }
+}
+
 function mostraNessunTestAttivo() {
   document.getElementById("blocco-caricamento").classList.add("nascosto");
   document.getElementById("blocco-test-attivo").classList.add("nascosto");
@@ -629,6 +651,7 @@ function mostraNessunTestAttivo() {
   document.getElementById("corpo").classList.add("a-colonna-singola");
   if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
   fermaCountdownLanding();
+  fermaBattitoLocandina();
   generazioneOsservatoreTest++;
   if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
   ID_TEST_ATTIVO = "";
@@ -697,6 +720,11 @@ function gestisciStatoTestLocandina(dati) {
     aggiornaStatistiche();
     pollingStatistiche = setInterval(aggiornaStatistiche, 3000);
   }
+  // Solo se non è già in corso: il battito stesso scrive sul
+  // documento osservato, quindi rifarlo partire a ogni notifica in
+  // arrivo (compresa quella causata dal battito stesso) lo
+  // rimanderebbe all'infinito.
+  if (!intervalloBattitoLocandina) avviaBattitoLocandina();
 
   datiTimerCorrente = {
     durataMinuti: dati.durataMinuti || 0,

@@ -310,7 +310,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 6</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 8</div>
 
 <div id="messaggio-globale"></div>
 
@@ -553,7 +553,8 @@ async function elencoTest() {
       avviatoTimestamp: dati.avviatoTimestamp || null,
       pausaTimestamp: dati.pausaTimestamp || null,
       terminatoTimestamp: dati.terminatoTimestamp || null,
-      totalePausaMs: dati.totalePausaMs || 0
+      totalePausaMs: dati.totalePausaMs || 0,
+      locandinaUltimoAggiornamento: dati.locandinaUltimoAggiornamento || null
     });
   }
   return risultato;
@@ -961,7 +962,10 @@ function caricaElenco() {
       return;
     }
     Promise.all(elenco.map(test => arricchisciConStatoLive(test))).then(elencoArricchito => {
-      if (richiestaCorrente === contatoreRichiesteElenco) { mostraElenco(elencoArricchito); sbloccaInterfaccia(); }
+      if (richiestaCorrente === contatoreRichiesteElenco) {
+        mostraElenco(elencoArricchito);
+        sbloccaInterfaccia();
+      }
       fine();
     }).catch(() => {
       if (richiestaCorrente === contatoreRichiesteElenco) { mostraElenco(elenco); sbloccaInterfaccia(); }
@@ -1019,7 +1023,7 @@ function mostraElenco(elenco) {
       '<td style="background:' + (test.completati === test.numStudenti && test.numStudenti > 0 ? '#c8f0c8' : '#ffe3c2') + ';">' + test.completati + '</td>' +
       '<td>' + test.azzeramenti + '</td>' +
       '<td>' + escapeHtml(calcolaOrarioUltimaModifica(test)) + '</td>' +
-      '<td>' + (test.attivo ? '<span class="badge-attivo">ATTIVO</span>' : '<span class="badge-inattivo">non attivo</span>') + (test.inCorso ? '<br><span class="badge-in-corso">TEST IN CORSO</span>' : '') + (test.inPausa ? '<br><span class="badge-in-pausa">IN PAUSA</span>' : '') + '</td>' +
+      '<td>' + (test.attivo ? '<span class="badge-attivo">ATTIVO</span>' : '<span class="badge-inattivo">non attivo</span>') + (test.inCorso ? '<br><span class="badge-in-corso">TEST IN CORSO</span>' : '') + (test.inPausa ? '<br><span class="badge-in-pausa">IN PAUSA</span>' : '') + avvisoLocandinaMancanteHtml(test) + '</td>' +
       '<td></td>';
     const cellaAzioni = riga.querySelector('td:last-child');
     cellaAzioni.className = "cella-azioni";
@@ -1093,6 +1097,18 @@ function mostraElenco(elenco) {
 
     corpo.appendChild(riga);
   });
+}
+
+// La locandina è l'unica pagina che chiude ufficialmente il turno
+// allo scadere del tempo: se non risulta aperta (nessun battito
+// recente) mentre un test a tempo è in corso e non in pausa, il
+// turno non si chiuderà da solo.
+function avvisoLocandinaMancanteHtml(test) {
+  if (!test.attivo || !test.inCorso || test.inPausa || !test.durataMinuti) return "";
+  const ultimoBattito = test.locandinaUltimoAggiornamento;
+  const battitoFresco = ultimoBattito && (Date.now() - Number(ultimoBattito)) <= 40000;
+  if (battitoFresco) return "";
+  return '<br><span class="badge-attenzione" style="background:#f8d7da; color:#721c24; padding:3px 10px; border-radius:12px; font-size:0.78rem; font-weight:600; display:inline-block; margin-top:4px;">⚠️ Locandina non aperta</span>';
 }
 
 function escapeHtml(testo) {
