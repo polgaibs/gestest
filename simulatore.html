@@ -231,7 +231,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 13</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 14</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -749,6 +749,17 @@ async function consegnaBot(nomeBot, scadutoPerTempo) {
       nome: nomeBot, stato: "completato", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
     }, { merge: true }).catch(() => {});
   } catch (e) {
+    // Firestore rifiuta come "permission-denied" un tentativo di
+    // scrivere su un risultato che esiste già (le regole vietano al
+    // pubblico di modificarlo, solo di crearlo la prima volta): è il
+    // segnale che questo nominativo ha già un risultato salvato, non
+    // un vero errore. Lo tratto come consegnato, esattamente come fa
+    // il quiz vero in questo stesso caso, invece di segnarlo rosso.
+    if (e && e.code === "permission-denied") {
+      botAttivi.set(nomeBot, { stato: "consegnato" });
+      log(nomeBot + ": risultava già consegnato in precedenza, non è un errore.", "ok");
+      return;
+    }
     numeroErrori++;
     elencoErroriCorsa.push({ nomeBot, fase: "risultato", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
     botAttivi.set(nomeBot, { stato: "errore" });
