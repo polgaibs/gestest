@@ -378,7 +378,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 17</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 18</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -394,6 +394,7 @@
     </div>
     <div class="titolo-test-contenitore" id="titolo-test-contenitore">
       <div id="sottotitolo-test">Test di valutazione</div>
+      <div id="credito-nessun-test" class="istruzione-secondaria nascosto" style="text-align:left; margin-top:0.3vh;">realizzato dall'Ufficio Informatico Scuola Pol.G.A.I.</div>
     </div>
   </div>
 
@@ -730,7 +731,9 @@ function mostraNessunTestAttivo() {
   document.getElementById("blocco-caricamento").classList.add("nascosto");
   document.getElementById("blocco-test-attivo").classList.add("nascosto");
   document.getElementById("blocco-nessun-test").classList.remove("nascosto");
-  document.getElementById("titolo-test-contenitore").classList.add("nascosto");
+  document.getElementById("titolo-test-contenitore").classList.remove("nascosto");
+  impostaTitoloTest("GesTest");
+  document.getElementById("credito-nessun-test").classList.remove("nascosto");
   document.getElementById("pannello-controllo").classList.remove("visibile");
   document.getElementById("corpo").classList.add("a-colonna-singola");
   if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
@@ -798,6 +801,7 @@ function gestisciStatoTestLocandina(dati) {
   document.getElementById("corpo").classList.remove("a-colonna-singola");
   document.getElementById("blocco-test-attivo").classList.remove("nascosto");
   impostaTitoloTest(dati.nome || "");
+  document.getElementById("credito-nessun-test").classList.add("nascosto");
 
   TEST_HA_TIMER = (dati.durataMinuti || 0) > 0;
   NUMERO_STUDENTI_TOTALE = (dati.studenti || []).length;
