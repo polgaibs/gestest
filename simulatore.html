@@ -231,7 +231,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 12</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 13</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -270,6 +270,7 @@
   <button class="secondario" id="btn-reset-presenze">↺ Reset presenze bot</button>
   <button class="secondario" id="btn-scarica-report">📊 Scarica report Excel</button>
   <button class="pericolo" id="btn-reset-risultati" disabled title="Serve l'accesso Google — cancella solo i risultati dell'ultima simulazione">🗑 Reset risultati simulazione</button>
+  <button class="pericolo" id="btn-pulisci-vuoti" disabled title="Serve l'accesso Google — cerca ed elimina documenti test residui senza domande, di solo stato">🧹 Pulisci documenti vuoti</button>
   <button class="secondario" id="btn-ricarica-test">⟳ Ricarica test attivo</button>
 </div>
 
@@ -388,9 +389,11 @@ document.getElementById("btn-login").addEventListener("click", () => {
 onAuthStateChanged(auth, async (utente) => {
   const contenitore = document.getElementById("stato-login");
   const btnResetRisultati = document.getElementById("btn-reset-risultati");
+  const btnPulisciVuoti = document.getElementById("btn-pulisci-vuoti");
   if (!utente) {
     admin = false;
     btnResetRisultati.disabled = true;
+    btnPulisciVuoti.disabled = true;
     contenitore.innerHTML = '<button class="login" id="btn-login">Accedi con Google (serve solo per "Reset risultati bot")</button>';
     document.getElementById("btn-login").addEventListener("click", () => {
       signInWithPopup(auth, provider).catch(e => log("Accesso non riuscito: " + e.message, "errore"));
@@ -404,6 +407,7 @@ onAuthStateChanged(auth, async (utente) => {
     admin = false;
   }
   btnResetRisultati.disabled = !admin;
+  btnPulisciVuoti.disabled = !admin;
   contenitore.innerHTML = (admin ? "✅ " : "⚠️ non admin — ") + utente.email +
     ' <button class="secondario" id="btn-logout" style="padding:4px 10px; font-size:0.75rem;">Esci</button>';
   document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
@@ -1109,6 +1113,58 @@ document.getElementById("btn-reset-risultati").addEventListener("click", async (
     log("Cancellati " + contatore + " risultati della simulazione.", "ok");
   } catch (e) {
     log("Errore nella cancellazione: " + e.message, "errore");
+  }
+});
+
+// ============================================================
+// PULIZIA DOCUMENTI VUOTI (riservata, richiede login admin)
+// Nella collezione "test" possono restare documenti "di solo stato"
+// (senza il campo "domande"), residui del sistema precedente su
+// foglio Google o di collaudi interrotti: admin.html li ignora già
+// da sola nell'elenco, ma restano comunque nel database. Operazione
+// pensata per essere fatta ogni tanto, non a ogni cancellazione di
+// un test vero, perché questi residui non hanno alcun legame con un
+// test specifico che stai eliminando in quel momento.
+// ============================================================
+async function svuotaSottocollezioneOrfano(riferimentoTestOrfano, nomeSottocollezione) {
+  const istantanea = await getDocs(collection(riferimentoTestOrfano, nomeSottocollezione));
+  if (istantanea.empty) return;
+  const batch = writeBatch(db);
+  istantanea.forEach(d => batch.delete(d.ref));
+  await batch.commit();
+}
+
+document.getElementById("btn-pulisci-vuoti").addEventListener("click", async () => {
+  if (!admin) { log("Serve l'accesso Google da amministratore autorizzato.", "errore"); return; }
+  const bottone = document.getElementById("btn-pulisci-vuoti");
+  bottone.disabled = true; bottone.textContent = "Ricerca in corso...";
+  try {
+    const istantanea = await getDocs(collection(db, "test"));
+    const orfani = istantanea.docs.filter(d => !Array.isArray(d.data().domande));
+    bottone.disabled = false; bottone.textContent = "🧹 Pulisci documenti vuoti";
+
+    if (orfani.length === 0) {
+      log("Nessun documento vuoto trovato: la collezione \"test\" è pulita.", "ok");
+      return;
+    }
+    const elencoId = orfani.map(d => d.id).join(", ");
+    if (!confirm('Trovati ' + orfani.length + ' documenti "di solo stato" (senza domande dentro), probabilmente residui del sistema precedente o di collaudi:\n\n' + elencoId +
+      '\n\nEliminarli, comprese eventuali presenze o risultati residui al loro interno? L\'operazione non può essere annullata e non riguarda in nessun modo i test veri, che restano intoccati.')) return;
+
+    bottone.disabled = true; bottone.textContent = "Eliminazione in corso...";
+    let eliminati = 0;
+    for (const documento of orfani) {
+      await svuotaSottocollezioneOrfano(documento.ref, "presenze");
+      await svuotaSottocollezioneOrfano(documento.ref, "risultati");
+      await deleteDoc(documento.ref);
+      eliminati++;
+      bottone.textContent = "Eliminazione in corso... (" + eliminati + "/" + orfani.length + ")";
+    }
+    bottone.disabled = false; bottone.textContent = "🧹 Pulisci documenti vuoti";
+    log("Eliminati " + eliminati + " documenti vuoti (comprese eventuali sottocollezioni residue).", "ok");
+  } catch (e) {
+    bottone.disabled = false; bottone.textContent = "🧹 Pulisci documenti vuoti";
+    log("Errore nella pulizia: " + e.message, "errore");
   }
 });
 </script>
