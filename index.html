@@ -377,7 +377,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 11</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 12</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -485,7 +485,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import {
-  getFirestore, doc, getDoc, setDoc, onSnapshot,
+  getFirestore, doc, getDoc, setDoc,
   collection, getDocs, query, where, writeBatch, increment
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
@@ -722,48 +722,43 @@ function mostraNessunTestAttivo() {
 // invece lo stesso sistema già collaudato e affidabile del pannello
 // admin: una lettura diretta a intervalli fissi, non un canale
 // sempre aperto.
-function controllaPuntatoreAttivo() {
-  getDoc(riferimentoStatoAttivo()).then(istantanea => {
+// Un solo ciclo di polling per tutto: individua il test attivo E lo
+// tiene aggiornato (avvio, pausa, chiusura), senza nessun ascolto in
+// tempo reale (onSnapshot). Corre ogni 2 secondi, sempre, che il
+// test attivo sia cambiato oppure no: serve anche a vedere in
+// diretta quando qualcuno preme avvio/pausa/termina sullo stesso
+// test già in corso.
+function aggiornaStatoDaFirestore() {
+  getDoc(riferimentoStatoAttivo()).then(istantaneaPuntatore => {
     mostraBannerConnessione(false);
-    const idAttivo = istantanea.exists() ? istantanea.data().idTest : null;
-    if ((idAttivo || "") === ID_TEST_ATTIVO) return;
+    const idAttivo = istantaneaPuntatore.exists() ? istantaneaPuntatore.data().idTest : null;
+
     if (!idAttivo) {
-      mostraNessunTestAttivo();
+      if (ID_TEST_ATTIVO) mostraNessunTestAttivo();
       return;
     }
-    resettaPannelloControllo();
-    ID_TEST_ATTIVO = idAttivo;
-    collegaOsservatoreTest(idAttivo);
+
+    if (idAttivo !== ID_TEST_ATTIVO) {
+      resettaPannelloControllo();
+      ID_TEST_ATTIVO = idAttivo;
+    }
+
+    getDoc(riferimentoTest(idAttivo)).then(istantaneaTest => {
+      // Nel frattempo potrebbe essere cambiato di nuovo il test
+      // attivo (per esempio due click ravvicinati su admin): questa
+      // lettura, ormai riferita a un test superato, va ignorata.
+      if (idAttivo !== ID_TEST_ATTIVO) return;
+      mostraBannerConnessione(false);
+      if (!istantaneaTest.exists() || istantaneaTest.data().attivo !== true) {
+        mostraNessunTestAttivo();
+        return;
+      }
+      document.getElementById("blocco-caricamento").classList.add("nascosto");
+      gestisciStatoTestLocandina(istantaneaTest.data());
+    }).catch(() => {
+      mostraBannerConnessione(true);
+    });
   }).catch(() => {
-    mostraBannerConnessione(true);
-  });
-}
-
-// Un solo osservatore su tutto il documento del test: contiene sia
-// la configurazione (nome, durata, allievi) sia lo stato del turno
-// (avvio, pausa, chiusura), quindi un'unica lettura in tempo reale
-// basta per aggiornare l'intera pagina.
-function collegaOsservatoreTest(idTest) {
-  if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
-  generazioneOsservatoreTest++;
-  const generazioneAlMomentoDelCollegamento = generazioneOsservatoreTest;
-
-  annullaOsservatoreTest = onSnapshot(riferimentoTest(idTest), (istantanea) => {
-    // Se nel frattempo ci si è già ricollegati a un test più recente
-    // (o si è tornati a "nessun test attivo"), questa risposta
-    // appartiene a un osservatore ormai superato: va ignorata, non
-    // deve sovrascrivere lo stato attuale.
-    if (generazioneAlMomentoDelCollegamento !== generazioneOsservatoreTest) return;
-
-    mostraBannerConnessione(false);
-    if (!istantanea.exists() || istantanea.data().attivo !== true) {
-      mostraNessunTestAttivo();
-      return;
-    }
-    document.getElementById("blocco-caricamento").classList.add("nascosto");
-    gestisciStatoTestLocandina(istantanea.data());
-  }, () => {
-    if (generazioneAlMomentoDelCollegamento !== generazioneOsservatoreTest) return;
     mostraBannerConnessione(true);
   });
 }
@@ -846,8 +841,8 @@ function gestisciStatoTestLocandina(dati) {
   }
 }
 
-controllaPuntatoreAttivo();
-setInterval(controllaPuntatoreAttivo, 2000);
+aggiornaStatoDaFirestore();
+setInterval(aggiornaStatoDaFirestore, 2000);
 
 // Calcola connessi, mancanti, in svolgimento e completati leggendo
 // le presenze e i risultati non annullati direttamente da Firestore,
