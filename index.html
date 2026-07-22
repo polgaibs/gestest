@@ -337,7 +337,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 2</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 3</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -771,7 +771,7 @@ function aggiornaStatistiche() {
         if (nome) nomiCompletati.add(nome);
       });
 
-      const SOGLIA_CONNESSIONE_MS = 70000;
+      const SOGLIA_CONNESSIONE_MS = 180000;
       const ora = Date.now();
       let connessi = 0;
       let inSvolgimento = 0;
@@ -842,7 +842,7 @@ function terminaTestFirestore(idTest) {
 async function contaInSvolgimentoFirestore(idTest) {
   const istantanea = await getDocs(riferimentoPresenze(idTest));
   const ora = Date.now();
-  const SOGLIA_CONNESSIONE_MS = 70000;
+  const SOGLIA_CONNESSIONE_MS = 180000;
   let inSvolgimento = 0;
   istantanea.forEach(documento => {
     const dati = documento.data();

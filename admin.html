@@ -310,7 +310,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 4</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 5</div>
 
 <div id="messaggio-globale"></div>
 
@@ -732,7 +732,7 @@ async function permettiNuoviTentativi(idTest, nomiArray) {
 async function contaInSvolgimentoFirestore(idTest) {
   const istantanea = await getDocs(riferimentoPresenze(idTest));
   const ora = Date.now();
-  const SOGLIA_CONNESSIONE_MS = 70000;
+  const SOGLIA_CONNESSIONE_MS = 180000;
   let inSvolgimento = 0;
   istantanea.forEach(documento => {
     const dati = documento.data();
@@ -762,7 +762,7 @@ async function arricchisciConStatoLive(test) {
     test.inPausa = !!test.pausaTimestamp;
 
     const ora = Date.now();
-    const SOGLIA_CONNESSIONE_MS = 70000;
+    const SOGLIA_CONNESSIONE_MS = 180000;
     let connessi = 0, inSvolgimento = 0;
     istantaneaPresenze.forEach(documento => {
       const d = documento.data();

@@ -237,7 +237,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 12</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 13</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -551,20 +551,42 @@ function gestisciSchedaMultipla() {
 // per quanto tempo complessivo, e lo salviamo insieme al risultato
 // perché il responsabile lo veda dopo, sia su live.html sia
 // nell'Excel esportato.
+//
+// Le uscite più brevi di SOGLIA_USCITA_BREVE_MS non vengono contate:
+// sono quasi sempre solo lo schermo che va in stand-by mentre si
+// aspetta o si legge la domanda, non un vero controllo su un'altra
+// app.
+//
+// Lo stesso evento serve anche a un secondo scopo, indipendente dal
+// conteggio delle uscite: mandare un ping di presenza IMMEDIATO
+// proprio nell'istante in cui lo schermo si spegne e in quello in
+// cui si riaccende, invece di aspettare il giro normale ogni 25
+// secondi. I browser mobili rallentano o fermano i timer quando la
+// pagina è in background, quindi senza questo la presenza rischia di
+// invecchiare subito appena lo schermo va in stand-by.
 // ============================================================
+const SOGLIA_USCITA_BREVE_MS = 15000;
 let contatoreUsciteFocus = 0;
 let msFuoriFocusAccumulati = 0;
 let momentoUscitaFocus = null;
 
 document.addEventListener("visibilitychange", () => {
-  if (!statoQuizAvviatoLocalmente || testInviato) return;
+  if (testInviato) return;
+
+  if (statoPresenzaAttuale) scriviPresenza(statoPresenzaAttuale);
+
+  if (!statoQuizAvviatoLocalmente) return;
+
   if (document.hidden) {
     momentoUscitaFocus = Date.now();
   } else if (momentoUscitaFocus) {
-    msFuoriFocusAccumulati += Date.now() - momentoUscitaFocus;
-    contatoreUsciteFocus++;
+    const durata = Date.now() - momentoUscitaFocus;
     momentoUscitaFocus = null;
-    salvaStato();
+    if (durata >= SOGLIA_USCITA_BREVE_MS) {
+      msFuoriFocusAccumulati += durata;
+      contatoreUsciteFocus++;
+      salvaStato();
+    }
   }
 });
 
@@ -928,7 +950,7 @@ document.getElementById("btn-avvia").addEventListener("click", () => {
         // rientrando (per esempio dopo un F5 che ha comunque perdurato
         // fino a qui), non un'altra persona, quindi lascio passare
         // senza mostrare "nome già in uso".
-        const sogliaPresenzaFrescaMs = 70000;
+        const sogliaPresenzaFrescaMs = 180000;
         getDoc(riferimentoPresenza(nomeStudente))
           .then(istantaneaPresenza => {
             if (istantaneaPresenza.exists()) {
@@ -1431,12 +1453,16 @@ function inviaTest(perScadenzaTempo, motivo) {
 
   // Se l'invio scatta mentre l'allievo è ancora "fuori" (per esempio
   // il timer scade mentre ha un'altra app in primo piano), conto
-  // anche quell'ultima uscita, ancora in corso, invece di perderla.
+  // anche quell'ultima uscita, ancora in corso, invece di perderla,
+  // sempre rispettando la stessa soglia minima delle altre.
   let msFuoriFocusTotali = msFuoriFocusAccumulati;
   let uscite = contatoreUsciteFocus;
   if (momentoUscitaFocus) {
-    msFuoriFocusTotali += Date.now() - momentoUscitaFocus;
-    uscite++;
+    const durataUltimaUscita = Date.now() - momentoUscitaFocus;
+    if (durataUltimaUscita >= SOGLIA_USCITA_BREVE_MS) {
+      msFuoriFocusTotali += durataUltimaUscita;
+      uscite++;
+    }
   }
 
   const payloadBase = {

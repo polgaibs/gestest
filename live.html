@@ -197,7 +197,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 4</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 5</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -321,7 +321,7 @@ function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "r
 function riferimentoStatoAttivo() { return doc(db, "stato", "attivo"); }
 function normalizza(testo) { return (testo || "").toString().trim().toLowerCase(); }
 
-const SOGLIA_CONNESSIONE_MS = 70000;
+const SOGLIA_CONNESSIONE_MS = 180000;
 
 // ============================================================
 // SEZIONI RICHIUDIBILI
