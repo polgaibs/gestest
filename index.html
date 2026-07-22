@@ -241,13 +241,14 @@
 
   .riquadro-andamento {
     width: 100%;
+    max-width: 480px;
     position: relative;
     background: rgba(46,204,154,0.08);
     border: 1px solid var(--verde);
     border-radius: 14px;
     padding: clamp(10px, 1.6vh, 18px) clamp(12px, 1.6vw, 20px);
     text-align: center;
-    margin-bottom: clamp(8px, 1.4vh, 16px);
+    margin: 1.4vh auto 0;
   }
   .segnale-neutro {
     position: absolute;
@@ -378,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 20</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 21</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -416,6 +417,14 @@
         </div>
         <p class="scritta-pausa-grande nascosto" id="scritta-pausa-grande">PAUSA</p>
         <p class="istruzione-critica nascosto" id="avviso-test-in-corso">Il test è già iniziato. Non è più possibile accedere in questo momento.</p>
+        <div class="riquadro-andamento nascosto" id="riquadro-andamento">
+          <span class="segnale-neutro nascosto" id="segnale-neutro" title=""></span>
+          <div class="testo-andamento" id="testo-andamento">0 su 0 hanno consegnato</div>
+          <div class="barra-andamento-contenitore">
+            <div class="barra-andamento-interna" id="barra-andamento-interna" style="width:0%;"></div>
+          </div>
+          <div class="sottotesto-andamento" id="sottotesto-andamento"></div>
+        </div>
         <p class="istruzione-secondaria" id="testo-durata-landing"></p>
         <div id="contenitore-countdown-landing" class="nascosto">
           <div id="countdown-landing">20:00</div>
@@ -425,15 +434,6 @@
 
     <!-- Colonna di controllo: compare solo quando c'è un test attivo -->
     <div class="colonna colonna-controllo" id="pannello-controllo">
-      <div class="riquadro-andamento nascosto" id="riquadro-andamento">
-        <span class="segnale-neutro nascosto" id="segnale-neutro" title=""></span>
-        <div class="testo-andamento" id="testo-andamento">0 su 0 hanno consegnato</div>
-        <div class="barra-andamento-contenitore">
-          <div class="barra-andamento-interna" id="barra-andamento-interna" style="width:0%;"></div>
-        </div>
-        <div class="sottotesto-andamento" id="sottotesto-andamento"></div>
-      </div>
-
       <div class="contatori">
         <div class="contatore">
           <div class="icona">🙋</div>
