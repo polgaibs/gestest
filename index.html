@@ -238,6 +238,46 @@
   }
   .colonna-controllo.visibile { display: flex; }
 
+  .riquadro-andamento {
+    width: 100%;
+    position: relative;
+    background: rgba(46,204,154,0.08);
+    border: 1px solid var(--verde);
+    border-radius: 14px;
+    padding: clamp(10px, 1.6vh, 18px) clamp(12px, 1.6vw, 20px);
+    text-align: center;
+    margin-bottom: clamp(8px, 1.4vh, 16px);
+  }
+  .segnale-neutro {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.5px;
+  }
+  .testo-andamento {
+    font-size: clamp(1.15rem, 2vw, 1.6rem);
+    font-weight: 700;
+    color: var(--verde);
+  }
+  .barra-andamento-contenitore {
+    background: rgba(255,255,255,0.1);
+    border-radius: 20px;
+    height: clamp(10px, 1.4vh, 16px);
+    overflow: hidden;
+    margin: clamp(6px, 1vh, 10px) 0 4px;
+  }
+  .barra-andamento-interna {
+    height: 100%;
+    background: var(--verde);
+    border-radius: 20px;
+    transition: width 0.6s ease;
+  }
+  .sottotesto-andamento {
+    font-size: clamp(0.85rem, 1.1vw, 1.05rem);
+    color: rgba(255,255,255,0.75);
+  }
   .contatori {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -337,7 +377,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 6</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 9</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -383,6 +423,15 @@
 
     <!-- Colonna di controllo: compare solo quando c'è un test attivo -->
     <div class="colonna colonna-controllo" id="pannello-controllo">
+      <div class="riquadro-andamento nascosto" id="riquadro-andamento">
+        <span class="segnale-neutro nascosto" id="segnale-neutro" title=""></span>
+        <div class="testo-andamento" id="testo-andamento">0 su 0 hanno consegnato</div>
+        <div class="barra-andamento-contenitore">
+          <div class="barra-andamento-interna" id="barra-andamento-interna" style="width:0%;"></div>
+        </div>
+        <div class="sottotesto-andamento" id="sottotesto-andamento"></div>
+      </div>
+
       <div class="contatori">
         <div class="contatore">
           <div class="icona">🙋</div>
@@ -417,7 +466,7 @@
         <button class="btn-pausa-sincronizzato nascosto" id="btn-riprendi-tutti">Riprendi il test per tutti</button>
         <button class="btn-termina-sincronizzato nascosto" id="btn-chiudi-turno">Termina manualmente</button>
       </div>
-      <p class="stato-avvio nascosto" id="stato-avvio">Il test è stato avviato per tutti gli studenti in attesa.</p>
+      <p class="stato-avvio nascosto" id="stato-avvio">Il test è stato avviato per tutti gli allievi in attesa.</p>
       <p class="stato-avvio nascosto" id="stato-pausa">Il test è in pausa. Gli allievi sono bloccati su una schermata di attesa, il timer è fermo.</p>
       <p class="stato-avvio nascosto" id="stato-scaduto">Il tempo è scaduto. Gli ultimi allievi stanno inviando automaticamente le risposte.</p>
     </div>
@@ -541,6 +590,8 @@ function resettaPannelloControllo() {
 
   document.getElementById("stato-scaduto").classList.add("nascosto");
   document.getElementById("scritta-pausa-grande").classList.add("nascosto");
+  document.getElementById("riquadro-andamento").classList.add("nascosto");
+  document.getElementById("segnale-neutro").classList.add("nascosto");
 }
 
 // Vero solo per i pochi istanti tra il click su uno dei tre pulsanti
@@ -818,11 +869,15 @@ function aggiornaStatistiche() {
       // finché la pagina resta aperta.
       const nomiConnessi = new Set();
       let inSvolgimento = 0;
+      let abbandonati = 0;
       istantaneaPresenze.forEach(documento => {
         const d = documento.data();
-        const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
-        if (!fresco) return;
         const nomeNormalizzato = (d.nome || "").trim().toLowerCase();
+        const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+        if (!fresco) {
+          if (!nomiCompletati.has(nomeNormalizzato)) abbandonati++;
+          return;
+        }
         if (["attesa", "in_corso", "bloccato", "completato"].includes(d.stato)) nomiConnessi.add(nomeNormalizzato);
         if (d.stato === "in_corso") inSvolgimento++;
       });
@@ -837,6 +892,35 @@ function aggiornaStatistiche() {
       document.getElementById("numero-mancanti").textContent = mancanti;
       document.getElementById("numero-svolgimento").textContent = inSvolgimento;
       document.getElementById("numero-completati").textContent = completati;
+
+      // Riquadro riassuntivo per il relatore, che spesso non ha modo
+      // di aprire live.html: invece di due numeri separati da
+      // confrontare a memoria nel tempo, un unico totale "quanti
+      // hanno risposto finora" (in svolgimento + completati, ricalcolato
+      // ogni volta) fa il conto al posto suo. Se qualcuno abbandona
+      // davvero, il totale si riduce da solo, senza lasciare un
+      // "buco" che sembri un errore.
+      const totaleRisposto = inSvolgimento + completati;
+      const riquadroAndamento = document.getElementById("riquadro-andamento");
+      if (totaleRisposto === 0) {
+        riquadroAndamento.classList.add("nascosto");
+        document.getElementById("segnale-neutro").classList.add("nascosto");
+      } else {
+        riquadroAndamento.classList.remove("nascosto");
+        document.getElementById("testo-andamento").textContent = completati + " su " + totaleRisposto + " hanno consegnato";
+        const percentuale = Math.round((completati / totaleRisposto) * 100);
+        document.getElementById("barra-andamento-interna").style.width = percentuale + "%";
+        document.getElementById("sottotesto-andamento").textContent =
+          inSvolgimento === 0 ? "Tutti hanno consegnato" : (inSvolgimento === 1 ? "1 persona sta ancora rispondendo" : inSvolgimento + " persone stanno ancora rispondendo");
+
+        const segnaleNeutro = document.getElementById("segnale-neutro");
+        if (abbandonati > 0) {
+          segnaleNeutro.textContent = "🔸 " + abbandonati;
+          segnaleNeutro.classList.remove("nascosto");
+        } else {
+          segnaleNeutro.classList.add("nascosto");
+        }
+      }
     })
     .catch(() => {});
 }
@@ -845,7 +929,7 @@ function aggiornaStatistiche() {
 // AVVIA IL TEST PER TUTTI
 // ============================================================
 document.getElementById("btn-avvia-tutti").addEventListener("click", () => {
-  if (!confirm("Avviare il test per tutti gli studenti attualmente in attesa? L'operazione non può essere annullata.")) return;
+  if (!confirm("Avviare il test per tutti gli allievi attualmente in attesa? L'operazione non può essere annullata.")) return;
 
   azioneInCorso = true;
   const bottone = document.getElementById("btn-avvia-tutti");
