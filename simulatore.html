@@ -230,7 +230,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 5</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 6</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -252,8 +252,11 @@
   <label class="campo">Ramp ms (attesa tra un bot e l'altro)
     <input type="number" id="campo-ramp" value="80" min="0" max="5000">
   </label>
+  <label class="campo">Tempo risposta min (s)
+    <input type="number" id="campo-tempo-risposta-min" value="20" min="0" max="600">
+  </label>
   <label class="campo">Tempo risposta max (s)
-    <input type="number" id="campo-tempo-risposta" value="15" min="1" max="600">
+    <input type="number" id="campo-tempo-risposta" value="90" min="1" max="600">
   </label>
   <label class="campo">Abbandoni simulati (%)
     <input type="number" id="campo-abbandoni" value="5" min="0" max="100">
@@ -611,17 +614,21 @@ async function eseguiBot(nomeBot, percentualeAbbandono) {
   }
   botAttivi.set(nomeBot, { stato: "attesa" });
 
-  // Ping periodico di presenza, come farebbe davvero il quiz, finché
-  // il bot non consegna, abbandona, o la simulazione viene fermata.
+  // Ping periodico di presenza, come farebbe davvero il quiz. Continua
+  // anche dopo la consegna (con stato "completato", finché la pagina
+  // resterebbe aperta), si ferma solo per abbandono, errore, o fine
+  // simulazione: rispecchia esattamente il comportamento vero del
+  // quiz, che non smette di segnalarsi solo perché ha finito.
   const pingId = setInterval(() => {
     if (!simulazioneInCorso) { clearInterval(pingId); return; }
     const info = botAttivi.get(nomeBot);
-    if (!info || info.stato === "consegnato" || info.stato === "abbandonato" || info.stato === "errore") {
+    if (!info || info.stato === "abbandonato" || info.stato === "errore") {
       clearInterval(pingId);
       return;
     }
+    const statoFirestore = info.stato === "consegnato" ? "completato" : info.stato;
     setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
-      nome: nomeBot, stato: info.stato, ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+      nome: nomeBot, stato: statoFirestore, ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
     }, { merge: true }).catch(() => {});
   }, 25000);
 
@@ -655,8 +662,10 @@ function procediConRisposta(nomeBot, pingId) {
   if (!info || info.stato === "abbandonato" || info.stato === "errore") return;
   botAttivi.set(nomeBot, { stato: "in_corso" });
 
-  const tempoMassimoMs = Number(document.getElementById("campo-tempo-risposta").value || 15) * 1000;
-  const ritardoRisposta = 500 + Math.random() * Math.max(tempoMassimoMs - 500, 500);
+  const tempoMinimoMs = Number(document.getElementById("campo-tempo-risposta-min").value || 0) * 1000;
+  const tempoMassimoMsRichiesto = Number(document.getElementById("campo-tempo-risposta").value || 90) * 1000;
+  const tempoMassimoMs = Math.max(tempoMassimoMsRichiesto, tempoMinimoMs + 1000);
+  const ritardoRisposta = tempoMinimoMs + Math.random() * (tempoMassimoMs - tempoMinimoMs);
 
   pianificaTimer(async () => {
     if (!simulazioneInCorso) return;
@@ -690,7 +699,12 @@ function procediConRisposta(nomeBot, pingId) {
     try {
       await scriviConTempo(setDoc(riferimentoRisultato(ID_TEST, nomeBot), payload));
       botAttivi.set(nomeBot, { stato: "consegnato" });
-      clearInterval(pingId);
+      // Ping immediato a "completato", invece di aspettare fino a 25
+      // secondi il prossimo giro periodico, e senza fermare il ping:
+      // continua finché la simulazione resta attiva.
+      setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+        nome: nomeBot, stato: "completato", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+      }, { merge: true }).catch(() => {});
     } catch (e) {
       numeroErrori++;
       elencoErroriCorsa.push({ nomeBot, fase: "risultato", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });

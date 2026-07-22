@@ -337,7 +337,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 3</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 4</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -773,19 +773,29 @@ function aggiornaStatistiche() {
 
       const SOGLIA_CONNESSIONE_MS = 180000;
       const ora = Date.now();
-      let connessi = 0;
+      // "Connessi" deve essere lo specchio di chi ha ancora la pagina
+      // del quiz aperta, dall'inizio alla fine, compresa la
+      // schermata di invio completato: non si svuota più mano a mano
+      // che gli allievi consegnano, perché il quiz continua a
+      // mandare il segnale di presenza (con stato "completato")
+      // finché la pagina resta aperta.
+      const nomiConnessi = new Set();
       let inSvolgimento = 0;
       istantaneaPresenze.forEach(documento => {
         const d = documento.data();
         const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
         if (!fresco) return;
         const nomeNormalizzato = (d.nome || "").trim().toLowerCase();
-        if (nomiCompletati.has(nomeNormalizzato)) return;
-        if (d.stato === "attesa" || d.stato === "in_corso" || d.stato === "bloccato") connessi++;
+        if (["attesa", "in_corso", "bloccato", "completato"].includes(d.stato)) nomiConnessi.add(nomeNormalizzato);
         if (d.stato === "in_corso") inSvolgimento++;
       });
+      const connessi = nomiConnessi.size;
       const completati = nomiCompletati.size;
-      const mancanti = Math.max(NUMERO_STUDENTI_TOTALE - connessi - completati, 0);
+      // "Mancanti" è chi non risulta né connesso ora né già consegnato
+      // in passato (per esempio chi ha consegnato e poi chiuso la
+      // pagina resta comunque "completato", non torna "mancante").
+      const copertiUnione = new Set([...nomiConnessi, ...nomiCompletati]);
+      const mancanti = Math.max(NUMERO_STUDENTI_TOTALE - copertiUnione.size, 0);
 
       document.getElementById("numero-connessi").textContent = connessi;
       document.getElementById("numero-mancanti").textContent = mancanti;
