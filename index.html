@@ -377,7 +377,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 9</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 10</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -724,8 +724,13 @@ function collegaOsservatorePuntatore() {
       mostraNessunTestAttivo();
       return;
     }
-    if (idAttivo === ID_TEST_ATTIVO && annullaOsservatoreTest) return; // già collegato, nessun cambiamento reale
 
+    // Niente scorciatoie: ogni volta che il puntatore cambia (anche
+    // se punta di nuovo allo stesso ID di prima, per esempio dopo
+    // una disattivazione e riattivazione rapida), ricollega da zero
+    // l'osservatore sul documento del test. Un aggancio fresco costa
+    // pochissimo, ma evita qualunque dubbio su un vecchio
+    // osservatore rimasto in uno stato ambiguo.
     resettaPannelloControllo();
     ID_TEST_ATTIVO = idAttivo;
     collegaOsservatoreTest(idAttivo);
@@ -842,6 +847,27 @@ function gestisciStatoTestLocandina(dati) {
 }
 
 collegaOsservatorePuntatore();
+
+// Rete di sicurezza indipendente dall'ascolto in tempo reale qui
+// sopra: ogni 5 secondi rilegge direttamente il puntatore. Se non
+// corrisponde a quello che la pagina sta mostrando in questo
+// momento, vuol dire che l'ascolto in tempo reale non ha ricevuto
+// (o non ha elaborato) l'ultimo cambiamento, e forza un
+// ricollegamento pulito da qui, senza dover aspettare un
+// ricaricamento manuale della pagina.
+setInterval(() => {
+  getDoc(riferimentoStatoAttivo()).then(istantanea => {
+    const idAttivo = istantanea.exists() ? istantanea.data().idTest : null;
+    if ((idAttivo || "") === ID_TEST_ATTIVO) return;
+    if (!idAttivo) {
+      mostraNessunTestAttivo();
+    } else {
+      resettaPannelloControllo();
+      ID_TEST_ATTIVO = idAttivo;
+      collegaOsservatoreTest(idAttivo);
+    }
+  }).catch(() => {});
+}, 5000);
 
 // Calcola connessi, mancanti, in svolgimento e completati leggendo
 // le presenze e i risultati non annullati direttamente da Firestore,
