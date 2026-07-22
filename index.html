@@ -377,7 +377,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 15</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 16</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -560,6 +560,13 @@ try {
 
 let ID_TEST_ATTIVO = "";
 let TEST_HA_TIMER = false;
+// Vero solo quando il turno è avviato, non in pausa e non ancora
+// terminato: serve sia a nascondere il riquadro "hanno consegnato"
+// quando non è il caso (per esempio dopo un azzeramento, quando i
+// risultati del turno precedente resterebbero altrimenti in vista),
+// sia a decidere quando è lecito chiudere da soli il turno perché i
+// conti tornano.
+let TURNO_IN_CORSO = false;
 let NUMERO_STUDENTI_TOTALE = 0;
 let ASSENTI_ATTUALI = new Set();
 let pollingStatistiche = null;
@@ -710,6 +717,7 @@ function mostraNessunTestAttivo() {
   if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
   ID_TEST_ATTIVO = "";
   TEST_HA_TIMER = false;
+  TURNO_IN_CORSO = false;
   ASSENTI_ATTUALI = new Set();
 }
 
@@ -813,6 +821,7 @@ function gestisciStatoTestLocandina(dati) {
   resettaPannelloControllo();
 
   const testInCorsoAdesso = !!(dati.avviatoTimestamp && !dati.terminatoTimestamp);
+  TURNO_IN_CORSO = testInCorsoAdesso && !dati.pausaTimestamp;
   if (testInCorsoAdesso) {
     document.getElementById("blocco-qr-accesso").classList.add("nascosto");
     document.getElementById("avviso-test-in-corso").classList.remove("nascosto");
@@ -898,10 +907,13 @@ function aggiornaStatistiche() {
       // hanno risposto finora" (in svolgimento + completati, ricalcolato
       // ogni volta) fa il conto al posto suo. Se qualcuno abbandona
       // davvero, il totale si riduce da solo, senza lasciare un
-      // "buco" che sembri un errore.
+      // "buco" che sembri un errore. Visibile solo mentre il turno è
+      // davvero in corso: dopo un azzeramento i risultati del turno
+      // precedente restano nella collezione (per lo storico), ma
+      // qui non hanno più senso da mostrare come se fossero di ora.
       const totaleRisposto = inSvolgimento + completati;
       const riquadroAndamento = document.getElementById("riquadro-andamento");
-      if (totaleRisposto === 0) {
+      if (!TURNO_IN_CORSO || totaleRisposto === 0) {
         riquadroAndamento.classList.add("nascosto");
         document.getElementById("segnale-neutro").classList.add("nascosto");
       } else {
@@ -919,6 +931,24 @@ function aggiornaStatistiche() {
         } else {
           segnaleNeutro.classList.add("nascosto");
         }
+      }
+
+      // Chiusura automatica quando i conti tornano: una volta avviato,
+      // nessun allievo nuovo può più entrare, quindi chi era connesso
+      // può solo consegnare o essere riconosciuto come abbandonato
+      // (la stessa soglia di sempre, nessuna attesa aggiuntiva qui).
+      // Quando non resta più nessuno "in svolgimento" e il totale tra
+      // consegnati e abbandonati copre tutti gli allievi attesi (il
+      // totale meno gli assenti), il turno si chiude da solo, esattamente
+      // come già succede allo scadere del tempo.
+      const attesiOggi = Math.max(NUMERO_STUDENTI_TOTALE - ASSENTI_ATTUALI.size, 0);
+      if (TURNO_IN_CORSO && inSvolgimento === 0 && attesiOggi > 0 &&
+          (completati + abbandonati) >= attesiOggi && !resetAutomaticoProgrammato) {
+        resetAutomaticoProgrammato = true;
+        const idTestAlMomento = ID_TEST_ATTIVO;
+        terminaEAspettaPrimaDiAzzerare(idTestAlMomento).finally(() => {
+          resetAutomaticoProgrammato = false;
+        });
       }
     })
     .catch(() => {});
