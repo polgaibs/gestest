@@ -237,7 +237,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 14</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 15</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -1015,6 +1015,15 @@ function avviaControlloTestAttivo() {
   }, 20000);
 }
 
+// Ferma il ping di presenza per sempre: usata quando il turno a cui
+// questo allievo apparteneva viene chiuso e azzerato dal
+// responsabile, dopo che il test è già stato inviato. Da quel
+// momento in poi non ha più senso continuare a segnalarsi.
+function fermaPingDefinitivamente() {
+  if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+  if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+}
+
 function bloccaTestPerDisattivazione() {
   if (testInviato) return;
   testInviato = true;
@@ -1048,7 +1057,20 @@ function osservaStatoTest() {
 }
 
 function gestisciCambiamentoStatoTest(dati) {
-  if (testInviato) return;
+  if (testInviato) {
+    // Il test è già stato inviato: l'unica cosa che interessa ancora
+    // è sapere se il responsabile ha chiuso e azzerato questo turno,
+    // per smettere di segnalare la presenza. Senza questo controllo
+    // il ping continuerebbe a ricreare la presenza ogni 25 secondi
+    // anche a turno chiuso, e "connessi" non tornerebbe mai a zero
+    // finché la scheda resta aperta sulla schermata finale.
+    const avviatoAttualeConfronto = dati.avviatoTimestamp ? String(dati.avviatoTimestamp) : "";
+    const avviatoSessioneConfronto = avviatoTimestampSessione ? String(avviatoTimestampSessione) : "";
+    if (avviatoSessioneConfronto && avviatoAttualeConfronto !== avviatoSessioneConfronto) {
+      fermaPingDefinitivamente();
+    }
+    return;
+  }
 
   // Se l'admin disattiva del tutto il test (non solo il turno)
   // mentre questo dispositivo sta osservando, lo stesso documento lo
@@ -1514,10 +1536,12 @@ function provaInvio(payloadBase, tentativo, motivo) {
       // "connessi" su locandina, admin e live deve rappresentare
       // chiunque abbia ancora la pagina del quiz aperta, compresa la
       // schermata di invio completato, non solo chi sta ancora
-      // rispondendo.
+      // rispondendo. Per lo stesso motivo NON disconnetto più
+      // l'osservatore sul test qui: resta acceso solo per accorgersi
+      // se il responsabile chiude il turno (gestisciCambiamentoStatoTest
+      // lo intercetta e chiama fermaPingDefinitivamente).
       statoPresenzaAttuale = "completato";
       scriviPresenza("completato");
-      if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
       if (pollingTestAttivoInterval) { clearInterval(pollingTestAttivoInterval); pollingTestAttivoInterval = null; }
       clearInterval(intervalloBattitoScheda);
       mostraSchermataFinaleGiusta(motivo);
@@ -1533,7 +1557,6 @@ function provaInvio(payloadBase, tentativo, motivo) {
         cancellaSalvataggio();
         statoPresenzaAttuale = "completato";
         scriviPresenza("completato");
-        if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
         if (pollingTestAttivoInterval) { clearInterval(pollingTestAttivoInterval); pollingTestAttivoInterval = null; }
         clearInterval(intervalloBattitoScheda);
         mostraSchermataFinaleGiusta(motivo);
