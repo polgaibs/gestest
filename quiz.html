@@ -237,7 +237,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 15</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 16</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -331,6 +331,14 @@
     <h2 style="color: var(--rosso); margin-top:0;">Test già completato</h2>
     <p>Risulta che questo nominativo ha già completato il test in precedenza. Non è possibile ripeterlo.</p>
     <p style="margin-top:16px;">Se ritieni si tratti di un errore, rivolgiti al responsabile in aula.</p>
+  </div>
+
+  <!-- SCHERMATA ASSENTE: il nominativo risulta segnato assente per
+       questa sessione dal pannello admin. -->
+  <div class="scheda nascosto" id="schermata-assente">
+    <h2 style="color: var(--rosso); margin-top:0;">Risulti assente</h2>
+    <p>Per questa sessione risulti segnato come assente e non puoi accedere al test.</p>
+    <p style="margin-top:16px;">Se ritieni si tratti di un errore, rivolgiti al responsabile in aula: solo lui può correggerlo dal pannello.</p>
   </div>
 
   <!-- SCHERMATA CONFERMA RIENTRO: il dispositivo ha un tentativo non
@@ -468,6 +476,7 @@ function idSessioneDispositivo() {
 // CONFIGURAZIONE / STATO
 // ============================================================
 let PIN_CORRETTO = "";
+let ASSENTI_ATTUALI = new Set();
 let TEST_HA_PERID = false;
 let DOMANDE = [];
 let STUDENTI = [];
@@ -670,6 +679,7 @@ async function caricaTestAttivo() {
     DOMANDE = dati.domande || [];
     STUDENTI = dati.studenti || [];
     DURATA_MINUTI = dati.durataMinuti || 0;
+    ASSENTI_ATTUALI = new Set((dati.assenti || []).map(n => normalizza(n)));
 
     TEST_HA_PERID = STUDENTI.length > 0 && STUDENTI.every(n => /\(\d+\)\s*$/.test(n));
     if (!TEST_HA_PERID) {
@@ -867,6 +877,21 @@ document.getElementById("btn-inizia").addEventListener("click", () => {
   if (pinInserito !== String(PIN_CORRETTO).trim()) {
     erroreEl.textContent = "PIN non corretto. Chiedi conferma al responsabile in aula.";
     erroreEl.style.display = "block";
+    return;
+  }
+
+  if (ASSENTI_ATTUALI.has(normalizza(nominativoCompleto))) {
+    erroreEl.style.display = "none";
+    document.getElementById("schermata-id").classList.add("nascosto");
+    document.getElementById("schermata-assente").classList.remove("nascosto");
+    setDoc(doc(collection(db, "log")), {
+      tipo: "AVVISO CLIENT",
+      categoria: "ACCESSO NEGATO - ASSENTE",
+      messaggio: "Il nominativo risulta segnato assente per questa sessione e ha provato ad accedere al test.",
+      idTest: ID_TEST,
+      nome: nominativoCompleto,
+      timestamp: new Date().toLocaleString("it-IT")
+    }).catch(() => {});
     return;
   }
 

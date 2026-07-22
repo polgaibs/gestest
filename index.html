@@ -337,7 +337,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 5</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 6</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -388,6 +388,11 @@
           <div class="icona">🙋</div>
           <span class="numero" id="numero-connessi">0</span>
           <div class="etichetta">Connessi</div>
+        </div>
+        <div class="contatore">
+          <div class="icona">🚫</div>
+          <span class="numero" id="numero-assenti">0</span>
+          <div class="etichetta">Assenti</div>
         </div>
         <div class="contatore">
           <div class="icona">⏳</div>
@@ -507,6 +512,7 @@ try {
 let ID_TEST_ATTIVO = "";
 let TEST_HA_TIMER = false;
 let NUMERO_STUDENTI_TOTALE = 0;
+let ASSENTI_ATTUALI = new Set();
 let pollingStatistiche = null;
 let annullaOsservatorePuntatore = null;
 let annullaOsservatoreTest = null;
@@ -656,6 +662,7 @@ function mostraNessunTestAttivo() {
   if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
   ID_TEST_ATTIVO = "";
   TEST_HA_TIMER = false;
+  ASSENTI_ATTUALI = new Set();
 }
 
 function collegaOsservatorePuntatore() {
@@ -714,6 +721,8 @@ function gestisciStatoTestLocandina(dati) {
 
   TEST_HA_TIMER = (dati.durataMinuti || 0) > 0;
   NUMERO_STUDENTI_TOTALE = (dati.studenti || []).length;
+  ASSENTI_ATTUALI = new Set((dati.assenti || []).map(n => n.trim().toLowerCase()));
+  document.getElementById("numero-assenti").textContent = ASSENTI_ATTUALI.size;
 
   document.getElementById("pannello-controllo").classList.add("visibile");
   if (!pollingStatistiche) {
@@ -819,10 +828,9 @@ function aggiornaStatistiche() {
       });
       const connessi = nomiConnessi.size;
       const completati = nomiCompletati.size;
-      // "Mancanti" è chi non risulta né connesso ora né già consegnato
-      // in passato (per esempio chi ha consegnato e poi chiuso la
-      // pagina resta comunque "completato", non torna "mancante").
-      const copertiUnione = new Set([...nomiConnessi, ...nomiCompletati]);
+      // "Mancanti" è chi non risulta né connesso ora, né già consegnato
+      // in passato, né segnato assente per oggi.
+      const copertiUnione = new Set([...nomiConnessi, ...nomiCompletati, ...ASSENTI_ATTUALI]);
       const mancanti = Math.max(NUMERO_STUDENTI_TOTALE - copertiUnione.size, 0);
 
       document.getElementById("numero-connessi").textContent = connessi;

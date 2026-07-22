@@ -310,7 +310,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 8</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 9</div>
 
 <div id="messaggio-globale"></div>
 
@@ -355,7 +355,7 @@
   <div id="lista-caricamento" class="caricamento">Caricamento in corso...</div>
   <table id="tabella-test" class="nascosto">
     <thead>
-      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
+      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Assenti</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
     </thead>
     <tbody id="corpo-tabella-test"></tbody>
   </table>
@@ -371,6 +371,18 @@
   <div style="margin-top:16px;">
     <button id="btn-conferma-tentativo">Conferma</button>
     <button class="secondario" id="btn-annulla-tentativo">Annulla</button>
+  </div>
+</div>
+
+<div class="scheda nascosto" id="scheda-assenti">
+  <h2 style="margin-top:0;">Gestisci assenti</h2>
+  <p id="testo-assenti-nome-test" style="color:#666;"></p>
+  <p style="color:#666; font-size:0.9rem;">Spunta chi è assente oggi. Chi resta spuntato non comparirà tra i "mancanti" e non potrà accedere al quiz finché non lo togli da qui.</p>
+  <input type="text" id="campo-filtro-assenti" placeholder="Cerca un nome..." style="margin-bottom:10px;">
+  <div id="lista-assenti-allievi" class="editor-manuale" style="max-height:340px;"></div>
+  <div style="margin-top:16px;">
+    <button id="btn-conferma-assenti">Salva assenti</button>
+    <button class="secondario" id="btn-annulla-assenti">Annulla</button>
   </div>
 </div>
 
@@ -554,7 +566,8 @@ async function elencoTest() {
       pausaTimestamp: dati.pausaTimestamp || null,
       terminatoTimestamp: dati.terminatoTimestamp || null,
       totalePausaMs: dati.totalePausaMs || 0,
-      locandinaUltimoAggiornamento: dati.locandinaUltimoAggiornamento || null
+      locandinaUltimoAggiornamento: dati.locandinaUltimoAggiornamento || null,
+      assenti: dati.assenti || []
     });
   }
   return risultato;
@@ -1018,6 +1031,7 @@ function mostraElenco(elenco) {
       '<td>' + celleDurata(test) + '</td>' +
       '<td>' + test.numDomande + '</td>' +
       '<td>' + test.numStudenti + '</td>' +
+      '<td>' + (test.assenti.length > 0 ? '<span style="color:var(--rosso); font-weight:600;">' + test.assenti.length + '</span>' : '0') + '</td>' +
       '<td>' + test.connessi + '</td>' +
       '<td>' + test.inSvolgimento + '</td>' +
       '<td style="background:' + (test.completati === test.numStudenti && test.numStudenti > 0 ? '#c8f0c8' : '#ffe3c2') + ';">' + test.completati + '</td>' +
@@ -1082,6 +1096,11 @@ function mostraElenco(elenco) {
     btnNuovoTentativo.onclick = () => avviaPannelloNuovoTentativo(test.id, test.nome);
     cellaAzioni.appendChild(btnNuovoTentativo);
 
+    const btnAssenti = document.createElement("button");
+    btnAssenti.textContent = "🚫 Assenti"; btnAssenti.className = "secondario";
+    btnAssenti.onclick = () => avviaPannelloAssenti(test.id, test.nome);
+    cellaAzioni.appendChild(btnAssenti);
+
     const btnScaricaRisultati = document.createElement("button");
     btnScaricaRisultati.textContent = "Scarica risultati"; btnScaricaRisultati.className = "secondario";
     if (!test.completati || test.completati === 0) { btnScaricaRisultati.disabled = true; btnScaricaRisultati.title = "Nessun allievo ha ancora completato questo test, non c'e' ancora nulla da scaricare"; }
@@ -1120,6 +1139,12 @@ function escapeHtml(testo) {
 function chiudiPannelloTentativoSeAperto() {
   const scheda = document.getElementById("scheda-nuovo-tentativo");
   if (scheda && !scheda.classList.contains("nascosto")) { scheda.classList.add("nascosto"); idTestTentativo = null; }
+  chiudiPannelloAssentiSeAperto();
+}
+
+function chiudiPannelloAssentiSeAperto() {
+  const scheda = document.getElementById("scheda-assenti");
+  if (scheda && !scheda.classList.contains("nascosto")) { scheda.classList.add("nascosto"); idTestAssenti = null; }
 }
 
 function attivaTestConGestione(id) {
@@ -1289,6 +1314,95 @@ document.getElementById("btn-conferma-tentativo").addEventListener("click", () =
     caricaElenco();
   }).catch(e => {
     bottone.disabled = false; bottone.textContent = "Conferma";
+    erroreConSblocco(e);
+  });
+});
+
+// ============================================================
+// GESTISCI ASSENTI
+// Un elenco a parte rispetto agli allievi veri e propri: non tocca
+// mai "studenti" (l'anagrafica), solo un array di nomi assenti per
+// questo test, facile da svuotare il giorno dopo. Chi vi compare
+// non conta tra i "mancanti" su locandina/live/admin, e il quiz gli
+// nega l'accesso con un messaggio dedicato.
+// ============================================================
+let idTestAssenti = null;
+let studentiPannelloAssenti = [];
+
+function avviaPannelloAssenti(id, nomeTest) {
+  chiudiPannelloTentativoSeAperto();
+  bloccaInterfaccia();
+  getDoc(riferimentoTest(id)).then(istantanea => {
+    sbloccaInterfaccia();
+    if (!istantanea.exists()) { mostraMessaggio("Test non trovato.", "errore"); return; }
+    const dati = istantanea.data();
+    idTestAssenti = id;
+    studentiPannelloAssenti = (dati.studenti || []).slice().sort((a, b) => a.localeCompare(b, "it"));
+    const assentiAttuali = new Set(dati.assenti || []);
+
+    document.getElementById("testo-assenti-nome-test").textContent = 'Test: "' + nomeTest + '"';
+    document.getElementById("campo-filtro-assenti").value = "";
+    renderizzaListaAssenti(assentiAttuali);
+
+    document.getElementById("scheda-assenti").classList.remove("nascosto");
+    document.getElementById("scheda-assenti").scrollIntoView({ behavior: "smooth", block: "start" });
+  }).catch(erroreConSblocco);
+}
+
+function renderizzaListaAssenti(assentiPreselezionati) {
+  // Ricordo quali sono già spuntati nella vista corrente, così un
+  // filtro di ricerca non fa perdere le selezioni fatte finora.
+  const giaSpuntati = assentiPreselezionati || new Set(
+    Array.from(document.querySelectorAll(".checkbox-allievo-assente:checked")).map(c => c.value)
+  );
+  const filtro = normalizzaTesto(document.getElementById("campo-filtro-assenti").value);
+  const lista = document.getElementById("lista-assenti-allievi");
+  lista.innerHTML = "";
+  const daMostrare = filtro
+    ? studentiPannelloAssenti.filter(nome => normalizzaTesto(nome).includes(filtro))
+    : studentiPannelloAssenti;
+
+  if (daMostrare.length === 0) {
+    lista.innerHTML = '<p style="color:#888; padding:8px;">Nessun nominativo corrisponde alla ricerca.</p>';
+    return;
+  }
+  daMostrare.forEach(nome => {
+    const riga = document.createElement("label");
+    riga.style.cssText = "display:flex; align-items:center; gap:10px; padding:7px 4px; font-weight:400; margin:0; border-bottom:1px solid #eee;";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox"; checkbox.value = nome; checkbox.className = "checkbox-allievo-assente"; checkbox.style.width = "auto";
+    checkbox.checked = giaSpuntati.has(nome);
+    const testo = document.createElement("span");
+    testo.textContent = nome;
+    riga.appendChild(checkbox); riga.appendChild(testo);
+    lista.appendChild(riga);
+  });
+}
+
+function normalizzaTesto(testo) {
+  return (testo || "").toString().trim().toLowerCase();
+}
+
+document.getElementById("campo-filtro-assenti").addEventListener("input", () => renderizzaListaAssenti());
+
+document.getElementById("btn-annulla-assenti").addEventListener("click", () => {
+  chiudiPannelloAssentiSeAperto();
+});
+
+document.getElementById("btn-conferma-assenti").addEventListener("click", () => {
+  const assentiScelti = Array.from(document.querySelectorAll(".checkbox-allievo-assente:checked")).map(c => c.value);
+  bloccaInterfaccia();
+  const bottone = document.getElementById("btn-conferma-assenti");
+  bottone.disabled = true; bottone.textContent = "Salvataggio...";
+
+  updateDoc(riferimentoTest(idTestAssenti), { assenti: assentiScelti }).then(() => {
+    bottone.disabled = false; bottone.textContent = "Salva assenti";
+    mostraMessaggio(assentiScelti.length === 0 ? "Nessun assente per questo test." : assentiScelti.length + " allievo/i segnati assenti.", "ok");
+    document.getElementById("scheda-assenti").classList.add("nascosto");
+    idTestAssenti = null;
+    caricaElenco();
+  }).catch(e => {
+    bottone.disabled = false; bottone.textContent = "Salva assenti";
     erroreConSblocco(e);
   });
 });

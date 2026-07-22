@@ -197,7 +197,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 8</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 9</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -215,6 +215,10 @@
   <div class="statistica">
     <div class="etichetta">Allievi in elenco</div>
     <div class="valore" id="stat-totale">0</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">🚫 Assenti</div>
+    <div class="valore colore-grigio" id="stat-assenti">0</div>
   </div>
   <div class="statistica">
     <div class="etichetta">Connessi</div>
@@ -293,6 +297,15 @@
   <div class="corpo-sezione" id="corpo-abbandonati"></div>
 </div>
 
+<div class="sezione barra-laterale-grigio chiusa" id="sezione-assenti">
+  <div class="intestazione-sezione" data-toggle="sezione-assenti">
+    <span class="titolo">🚫 Assente</span>
+    <span class="conteggio" id="conteggio-assenti">0</span>
+    <span class="freccia">▾</span>
+  </div>
+  <div class="corpo-sezione" id="corpo-assenti"></div>
+</div>
+
 <div class="sezione barra-laterale-grigio chiusa" id="sezione-mancanti">
   <div class="intestazione-sezione" data-toggle="sezione-mancanti">
     <span class="titolo">💤 Deve ancora entrare (sessione successiva)</span>
@@ -347,6 +360,7 @@ let annullaOsservatoreRisultati = null;
 let generazione = 0;
 
 let STUDENTI = [];
+let ASSENTI_ATTUALI = new Set();
 let datiTestCorrente = {};
 let presenzeCorrenti = new Map(); // nome -> {stato, ultimoAggiornamento}
 let risultatiCorrenti = new Map(); // nome -> {usciteFocus, tempoFuoriFocusMs}
@@ -383,6 +397,7 @@ function collegaTest(idTest) {
     }
     datiTestCorrente = istantanea.data();
     STUDENTI = datiTestCorrente.studenti || [];
+    ASSENTI_ATTUALI = new Set((datiTestCorrente.assenti || []).map(n => normalizza(n)));
     renderizzaPannelloTest();
     ricalcolaERendi();
   });
@@ -592,6 +607,7 @@ function aspettaEAzzera(idTest, controlli) {
 function classificaAllievo(nomeCompleto) {
   const chiave = normalizza(nomeCompleto);
   if (risultatiCorrenti.has(chiave)) return "consegnato";
+  if (ASSENTI_ATTUALI.has(chiave)) return "assente";
   const presenza = presenzeCorrenti.get(chiave);
   if (!presenza) return "mancante";
   const fresco = presenza.ultimoAggiornamento && (Date.now() - Number(presenza.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
@@ -601,13 +617,14 @@ function classificaAllievo(nomeCompleto) {
 }
 
 function ricalcolaERendi() {
-  const secchi = { consegnato: [], svolgimento: [], attesa: [], abbandonato: [], mancante: [] };
+  const secchi = { consegnato: [], svolgimento: [], attesa: [], abbandonato: [], assente: [], mancante: [] };
   STUDENTI.forEach(nomeCompleto => {
     secchi[classificaAllievo(nomeCompleto)].push(nomeCompleto);
   });
   Object.values(secchi).forEach(elenco => elenco.sort((a, b) => a.localeCompare(b, "it")));
 
   document.getElementById("stat-totale").textContent = STUDENTI.length;
+  document.getElementById("stat-assenti").textContent = secchi.assente.length;
 
   let connessi = 0;
   const ora = Date.now();
@@ -621,6 +638,7 @@ function ricalcolaERendi() {
   document.getElementById("stat-attesa").textContent = secchi.attesa.length;
   document.getElementById("stat-abbandonati").textContent = secchi.abbandonato.length;
   document.getElementById("stat-mancanti").textContent = secchi.mancante.length;
+  popolaSezione("assenti", secchi.assente);
 
   const conUsciteFocus = secchi.consegnato.filter(nome => (risultatiCorrenti.get(normalizza(nome))?.usciteFocus || 0) > 0);
   document.getElementById("stat-uscite-focus").textContent = conUsciteFocus.length;
