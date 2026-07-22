@@ -231,7 +231,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 11</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 12</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -417,6 +417,7 @@ let NOME_TEST = "";
 let DOMANDE = [];
 let DURATA_MINUTI = 0;
 let STUDENTI = [];
+let ASSENTI_ATTUALI = new Set();
 
 async function caricaTestAttivo() {
   const pannello = document.getElementById("pannello-test");
@@ -441,11 +442,14 @@ async function caricaTestAttivo() {
     DOMANDE = dati.domande || [];
     DURATA_MINUTI = dati.durataMinuti || 0;
     STUDENTI = dati.studenti || [];
+    ASSENTI_ATTUALI = new Set(dati.assenti || []);
+    const disponibili = STUDENTI.length - ASSENTI_ATTUALI.size;
     pannello.innerHTML = 'Test attivo: <strong>' + NOME_TEST + '</strong> (' + ID_TEST + ') — ' +
-      DOMANDE.length + ' domande, ' + STUDENTI.length + ' allievi in elenco, ' +
+      DOMANDE.length + ' domande, ' + STUDENTI.length + ' allievi in elenco' +
+      (ASSENTI_ATTUALI.size > 0 ? ' (' + ASSENTI_ATTUALI.size + ' assenti, ' + disponibili + ' disponibili per i bot)' : '') + ', ' +
       (DURATA_MINUTI > 0 ? DURATA_MINUTI + ' minuti' : 'nessun limite di tempo') +
-      '. I bot useranno nomi presi da questo elenco.';
-    log("Test attivo rilevato: " + NOME_TEST + " (" + ID_TEST + "), " + STUDENTI.length + " allievi in elenco.");
+      '. I bot useranno nomi presi da questo elenco, esclusi gli assenti.';
+    log("Test attivo rilevato: " + NOME_TEST + " (" + ID_TEST + "), " + STUDENTI.length + " allievi in elenco" + (ASSENTI_ATTUALI.size > 0 ? ", " + ASSENTI_ATTUALI.size + " segnati assenti" : "") + ".");
   } catch (e) {
     pannello.innerHTML = "⚠️ Errore nel controllare il test attivo: " + e.message;
     ID_TEST = "";
@@ -813,19 +817,31 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
     log("Il test attivo non ha nessun allievo in elenco: non c'è nessun nome da assegnare ai bot.", "errore");
     return;
   }
+  // Un assente non può mai avviare davvero il quiz: quiz.html lo
+  // blocca prima ancora della sala d'attesa. I bot devono rispettare
+  // lo stesso limite, altrimenti la simulazione userebbe per sbaglio
+  // anche i nomi di chi è segnato assente, cosa che non può succedere
+  // con un allievo vero.
+  const nomiDisponibili = STUDENTI.filter(nome => !ASSENTI_ATTUALI.has(nome));
+  if (nomiDisponibili.length === 0) {
+    log("Tutti gli allievi in elenco risultano segnati assenti per questo test: nessun nome disponibile per i bot.", "errore");
+    return;
+  }
+
   let numeroBot = Math.max(1, Math.min(500, parseInt(document.getElementById("campo-bot").value, 10) || 1));
   const rampMs = Math.max(0, parseInt(document.getElementById("campo-ramp").value, 10) || 0);
   const percentualeAbbandono = Math.max(0, Math.min(100, parseInt(document.getElementById("campo-abbandoni").value, 10) || 0));
 
-  if (numeroBot > STUDENTI.length) {
-    log("Richiesti " + numeroBot + " bot, ma l'elenco ha solo " + STUDENTI.length + " allievi: ogni nome può essere usato una volta sola (come farebbe un allievo vero), quindi limito a " + STUDENTI.length + " bot.");
-    numeroBot = STUDENTI.length;
+  if (numeroBot > nomiDisponibili.length) {
+    log("Richiesti " + numeroBot + " bot, ma i nomi disponibili sono solo " + nomiDisponibili.length +
+      " (" + STUDENTI.length + " allievi in elenco meno " + ASSENTI_ATTUALI.size + " segnati assenti): ogni nome può essere usato una volta sola (come farebbe un allievo vero), quindi limito a " + nomiDisponibili.length + " bot.");
+    numeroBot = nomiDisponibili.length;
   }
   if (numeroBot > 256) {
     log("Attenzione: oltre circa 250-300 connessioni nella stessa scheda Chrome può iniziare a fare da collo di bottiglia il browser stesso, non Firestore. Se serve testare numeri più alti, apri più schede o usa Node.js.", null);
   }
 
-  const nomiMischiati = mischia(STUDENTI).slice(0, numeroBot);
+  const nomiMischiati = mischia(nomiDisponibili).slice(0, numeroBot);
 
   simulazioneInCorso = true;
   testAvviatoAdesso = false;

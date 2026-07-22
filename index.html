@@ -303,6 +303,10 @@
     font-size: clamp(0.85rem, 1.1vw, 1.05rem);
     color: rgba(255,255,255,0.75);
   }
+  #numero-assenti {
+    font-size: clamp(1.05rem, 1.6vw, 1.4rem);
+    white-space: nowrap;
+  }
 
   .riga-pulsanti-controllo {
     display: flex;
@@ -377,7 +381,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 12</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 13</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -773,7 +777,7 @@ function gestisciStatoTestLocandina(dati) {
   TEST_HA_TIMER = (dati.durataMinuti || 0) > 0;
   NUMERO_STUDENTI_TOTALE = (dati.studenti || []).length;
   ASSENTI_ATTUALI = new Set((dati.assenti || []).map(n => n.trim().toLowerCase()));
-  document.getElementById("numero-assenti").textContent = ASSENTI_ATTUALI.size;
+  document.getElementById("numero-assenti").textContent = ASSENTI_ATTUALI.size + " di " + NUMERO_STUDENTI_TOTALE + " totali";
 
   document.getElementById("pannello-controllo").classList.add("visibile");
   if (!pollingStatistiche) {
