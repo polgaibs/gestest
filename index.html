@@ -378,7 +378,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 19</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 20</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -903,12 +903,21 @@ function aggiornaStatistiche() {
       // mandare il segnale di presenza (con stato "completato")
       // finché la pagina resta aperta.
       const nomiConnessi = new Set();
+      // Chiunque abbia un documento di presenza per questo test, fresco
+      // o no: dato che le presenze vengono svuotate del tutto a ogni
+      // azzeramento di turno, chiunque compaia qui appartiene per forza
+      // alla sessione ATTUALE, mai a una sessione precedente già chiusa.
+      // Serve per distinguere "chi ha partecipato a questa sessione" da
+      // "consegnati di sempre su questo test", due cose diverse quando
+      // lo stesso test viene riusato su più gruppi in sessioni separate.
+      const nomiSessioneAttuale = new Set();
       let inSvolgimento = 0;
       let inAttesa = 0;
       let abbandonati = 0;
       istantaneaPresenze.forEach(documento => {
         const d = documento.data();
         const nomeNormalizzato = (d.nome || "").trim().toLowerCase();
+        nomiSessioneAttuale.add(nomeNormalizzato);
         const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
         if (!fresco) {
           if (!nomiCompletati.has(nomeNormalizzato)) abbandonati++;
@@ -933,14 +942,20 @@ function aggiornaStatistiche() {
       // Riquadro riassuntivo per il relatore, che spesso non ha modo
       // di aprire live.html: invece di due numeri separati da
       // confrontare a memoria nel tempo, un unico totale "quanti
-      // hanno risposto finora" (in svolgimento + completati, ricalcolato
-      // ogni volta) fa il conto al posto suo. Se qualcuno abbandona
-      // davvero, il totale si riduce da solo, senza lasciare un
-      // "buco" che sembri un errore. Visibile solo mentre il turno è
-      // davvero in corso: dopo un azzeramento i risultati del turno
-      // precedente restano nella collezione (per lo storico), ma
-      // qui non hanno più senso da mostrare come se fossero di ora.
-      const totaleRisposto = inSvolgimento + completati;
+      // hanno risposto finora" fa il conto al posto suo. Se lo stesso
+      // test viene riusato su più sessioni (gruppi diversi nello
+      // stesso giorno), "completati" conta i consegnati di SEMPRE su
+      // questo test, comprese le sessioni già chiuse, mentre il resto
+      // qui sotto è tutto scoperto SOLO sulla sessione attuale (le
+      // presenze si svuotano a ogni azzeramento). Sommare i due senza
+      // distinguerli darebbe un totale sbagliato. Il conto giusto:
+      // quanti hanno consegnato in sessioni precedenti (i consegnati
+      // di sempre meno quelli di questa sessione) più chiunque abbia
+      // partecipato a QUESTA sessione, indipendentemente da come è
+      // andata a finire per lui.
+      const nomiCompletatiSessioneAttuale = new Set([...nomiCompletati].filter(n => nomiSessioneAttuale.has(n)));
+      const completatiSessioniPrecedenti = completati - nomiCompletatiSessioneAttuale.size;
+      const totaleRisposto = completatiSessioniPrecedenti + nomiSessioneAttuale.size;
       const riquadroAndamento = document.getElementById("riquadro-andamento");
       if (!TURNO_IN_CORSO || totaleRisposto === 0) {
         riquadroAndamento.classList.add("nascosto");
