@@ -230,7 +230,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 8</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 9</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -462,6 +462,9 @@ let timerBot = []; // tutti i setTimeout in corso, per poterli cancellare con "F
 let rttCampioni = [];
 let annullaOsservatoreAvvio = null;
 let testAvviatoAdesso = false;
+let terminazioneGestita = false;
+let turnoChiuso = false;
+const pingIdsAttivi = new Map();
 let numeroBotRichiesti = 0;
 let numeroBotConnessi = 0;
 let numeroErrori = 0;
@@ -616,11 +619,12 @@ async function eseguiBot(nomeBot, percentualeAbbandono) {
 
   // Ping periodico di presenza, come farebbe davvero il quiz. Continua
   // anche dopo la consegna (con stato "completato", finché la pagina
-  // resterebbe aperta), si ferma solo per abbandono, errore, o fine
-  // simulazione: rispecchia esattamente il comportamento vero del
-  // quiz, che non smette di segnalarsi solo perché ha finito.
+  // resterebbe aperta), si ferma per abbandono, errore, fine
+  // simulazione, o quando il turno viene chiuso e azzerato dal
+  // responsabile: rispecchia esattamente il comportamento vero del
+  // quiz, che smette di segnalarsi solo a quel punto, non prima.
   const pingId = setInterval(() => {
-    if (!simulazioneInCorso) { clearInterval(pingId); return; }
+    if (!simulazioneInCorso || turnoChiuso) { clearInterval(pingId); return; }
     const info = botAttivi.get(nomeBot);
     if (!info || info.stato === "abbandonato" || info.stato === "errore") {
       clearInterval(pingId);
@@ -631,6 +635,7 @@ async function eseguiBot(nomeBot, percentualeAbbandono) {
       nome: nomeBot, stato: statoFirestore, ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
     }, { merge: true }).catch(() => {});
   }, 25000);
+  pingIdsAttivi.set(nomeBot, pingId);
 
   aspettaAvvioPoiRispondi(nomeBot, pingId, percentualeAbbandono);
 }
@@ -669,51 +674,60 @@ function procediConRisposta(nomeBot, pingId, percentualeAbbandono) {
   const tempoMassimoMs = Math.max(tempoMassimoMsRichiesto, tempoMinimoMs + 1000);
   const ritardoRisposta = tempoMinimoMs + Math.random() * (tempoMassimoMs - tempoMinimoMs);
 
-  pianificaTimer(async () => {
-    if (!simulazioneInCorso) return;
-    const infoAttuale = botAttivi.get(nomeBot);
-    if (!infoAttuale || infoAttuale.stato === "abbandonato") return;
+  pianificaTimer(() => consegnaBot(nomeBot), ritardoRisposta);
+}
 
-    const { punteggio, risposte } = generaRisposteFinte();
+// Logica di consegna vera e propria, riusabile sia per il normale
+// ritardo casuale sia per la consegna forzata quando il responsabile
+// chiude il turno mentre il bot sta ancora "rispondendo": esattamente
+// come farebbe un allievo vero, che a quel punto invia comunque le
+// risposte date fino a quel momento invece di continuare a rispondere
+// a un test ormai chiuso.
+async function consegnaBot(nomeBot, scadutoPerTempo) {
+  if (!simulazioneInCorso) return;
+  const infoAttuale = botAttivi.get(nomeBot);
+  if (!infoAttuale || infoAttuale.stato === "abbandonato" || infoAttuale.stato === "consegnato" || infoAttuale.stato === "errore") return;
 
-    // Uscite dal focus finte, secondo la percentuale configurata,
-    // per poter provare come appaiono in live.html senza aspettare
-    // una prova vera.
-    const percentualeFocus = Number(document.getElementById("campo-uscite-focus").value || 0);
-    let usciteFocus = 0, tempoFuoriFocusMs = 0;
-    if (Math.random() * 100 < percentualeFocus) {
-      usciteFocus = 1 + Math.floor(Math.random() * 3);
-      tempoFuoriFocusMs = Math.round((5 + Math.random() * 85) * 1000);
-    }
+  const { punteggio, risposte } = generaRisposteFinte();
 
-    const payload = {
-      nome: nomeBot,
-      timestamp: new Date().toLocaleString("it-IT"),
-      punteggio: punteggio,
-      totaleDomande: DOMANDE.length,
-      scadutoPerTempo: "NO",
-      risposte: risposte,
-      annullato: false,
-      numeroTentativo: 1,
-      usciteFocus: usciteFocus,
-      tempoFuoriFocusMs: tempoFuoriFocusMs
-    };
-    try {
-      await scriviConTempo(setDoc(riferimentoRisultato(ID_TEST, nomeBot), payload));
-      botAttivi.set(nomeBot, { stato: "consegnato" });
-      // Ping immediato a "completato", invece di aspettare fino a 25
-      // secondi il prossimo giro periodico, e senza fermare il ping:
-      // continua finché la simulazione resta attiva.
-      setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
-        nome: nomeBot, stato: "completato", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
-      }, { merge: true }).catch(() => {});
-    } catch (e) {
-      numeroErrori++;
-      elencoErroriCorsa.push({ nomeBot, fase: "risultato", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
-      botAttivi.set(nomeBot, { stato: "errore" });
-      log(nomeBot + ": errore inviando il risultato — " + (e.message || e), "errore");
-    }
-  }, ritardoRisposta);
+  // Uscite dal focus finte, secondo la percentuale configurata,
+  // per poter provare come appaiono in live.html senza aspettare
+  // una prova vera.
+  const percentualeFocus = Number(document.getElementById("campo-uscite-focus").value || 0);
+  let usciteFocus = 0, tempoFuoriFocusMs = 0;
+  if (Math.random() * 100 < percentualeFocus) {
+    usciteFocus = 1 + Math.floor(Math.random() * 3);
+    tempoFuoriFocusMs = Math.round((5 + Math.random() * 85) * 1000);
+  }
+
+  const payload = {
+    nome: nomeBot,
+    timestamp: new Date().toLocaleString("it-IT"),
+    punteggio: punteggio,
+    totaleDomande: DOMANDE.length,
+    scadutoPerTempo: scadutoPerTempo ? "SI" : "NO",
+    risposte: risposte,
+    annullato: false,
+    numeroTentativo: 1,
+    usciteFocus: usciteFocus,
+    tempoFuoriFocusMs: tempoFuoriFocusMs
+  };
+  try {
+    await scriviConTempo(setDoc(riferimentoRisultato(ID_TEST, nomeBot), payload));
+    botAttivi.set(nomeBot, { stato: "consegnato" });
+    // Ping immediato a "completato", invece di aspettare fino a 25
+    // secondi il prossimo giro periodico, e senza fermare il ping:
+    // continua finché il turno resta aperto (si ferma da solo quando
+    // il responsabile lo chiude e lo azzera, vedi collegaOsservatoreAvvio).
+    setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+      nome: nomeBot, stato: "completato", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+    }, { merge: true }).catch(() => {});
+  } catch (e) {
+    numeroErrori++;
+    elencoErroriCorsa.push({ nomeBot, fase: "risultato", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
+    botAttivi.set(nomeBot, { stato: "errore" });
+    log(nomeBot + ": errore inviando il risultato — " + (e.message || e), "errore");
+  }
 }
 
 // Un solo osservatore condiviso, non uno per bot: appena il test
@@ -723,6 +737,7 @@ function collegaOsservatoreAvvio() {
   if (annullaOsservatoreAvvio) return;
   annullaOsservatoreAvvio = onSnapshot(riferimentoTest(ID_TEST), (istantanea) => {
     const dati = istantanea.exists() ? istantanea.data() : {};
+
     if (dati.avviatoTimestamp && !testAvviatoAdesso) {
       testAvviatoAdesso = true;
       log("Il test risulta avviato: i bot in attesa iniziano a rispondere.", "ok");
@@ -734,6 +749,34 @@ function collegaOsservatoreAvvio() {
       });
       botInAttesaDiAvvio.clear();
     }
+
+    // Il responsabile ha terminato il turno: esattamente come farebbe
+    // il quiz vero, ogni bot ancora "in attesa" o "in svolgimento"
+    // consegna subito quello che ha, invece di continuare a rispondere
+    // a un test ormai chiuso.
+    if (dati.terminatoTimestamp && !terminazioneGestita) {
+      terminazioneGestita = true;
+      log("Il responsabile ha terminato il turno: i bot ancora in corso consegnano subito.", "ok");
+      botAttivi.forEach((info, nomeBot) => {
+        if (info.stato === "attesa" || info.stato === "in_corso") {
+          botInAttesaDiAvvio.delete(nomeBot);
+          consegnaBot(nomeBot, true);
+        }
+      });
+    }
+
+    // Il turno è stato azzerato (o il test disattivato): da qui in
+    // avanti nessun bot deve più segnalarsi, esattamente come il quiz
+    // vero smette di mandare il ping una volta chiuso il turno.
+    if ((!dati.avviatoTimestamp && terminazioneGestita) || dati.attivo === false) {
+      if (!turnoChiuso) {
+        turnoChiuso = true;
+        pingIdsAttivi.forEach(id => clearInterval(id));
+        pingIdsAttivi.clear();
+        log("Turno chiuso e azzerato: i bot smettono di segnalarsi.", "ok");
+      }
+    }
+
     if (!dati.avviatoTimestamp) {
       testAvviatoAdesso = false;
     }
@@ -768,6 +811,9 @@ document.getElementById("btn-avvia").addEventListener("click", async () => {
 
   simulazioneInCorso = true;
   testAvviatoAdesso = false;
+  terminazioneGestita = false;
+  turnoChiuso = false;
+  pingIdsAttivi.clear();
   botAttivi = new Map();
   timerBot = [];
   rttCampioni = [];
