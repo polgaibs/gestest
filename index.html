@@ -97,6 +97,7 @@
     font-weight: 700;
     color: var(--oro);
     line-height: 1.2;
+    white-space: nowrap;
   }
 
   .corpo {
@@ -377,7 +378,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 16</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 17</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -659,6 +660,28 @@ function fermaCountdownLanding() {
   }
 }
 
+// Titolo del test: invece di andare a capo su due righe quando è
+// lungo, il carattere si restringe finché non entra su una riga
+// sola nello spazio disponibile. Più il titolo è corto, più resta
+// grande, fino alla dimensione massima prevista dal CSS (il clamp
+// di #sottotitolo-test), che uso come punto di partenza a ogni
+// nuovo titolo prima di iniziare a ridurre.
+function impostaTitoloTest(nome) {
+  const el = document.getElementById("sottotitolo-test");
+  const contenitore = document.getElementById("titolo-test-contenitore");
+  el.style.fontSize = "";
+  el.textContent = nome;
+  if (!nome) return;
+
+  const dimensioneMassimaPx = parseFloat(getComputedStyle(el).fontSize);
+  const dimensioneMinimaPx = dimensioneMassimaPx * 0.35;
+  let dimensione = dimensioneMassimaPx;
+  while (el.scrollWidth > contenitore.clientWidth && dimensione > dimensioneMinimaPx) {
+    dimensione -= 1;
+    el.style.fontSize = dimensione + "px";
+  }
+}
+
 function mostraBannerConnessione(visibile) {
   document.getElementById("banner-connessione").style.display = visibile ? "block" : "none";
 }
@@ -774,7 +797,7 @@ function gestisciStatoTestLocandina(dati) {
   document.getElementById("titolo-test-contenitore").classList.remove("nascosto");
   document.getElementById("corpo").classList.remove("a-colonna-singola");
   document.getElementById("blocco-test-attivo").classList.remove("nascosto");
-  document.getElementById("sottotitolo-test").textContent = dati.nome || "";
+  impostaTitoloTest(dati.nome || "");
 
   TEST_HA_TIMER = (dati.durataMinuti || 0) > 0;
   NUMERO_STUDENTI_TOTALE = (dati.studenti || []).length;
