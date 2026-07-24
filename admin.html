@@ -59,7 +59,7 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
   table { width: 100%; border-collapse: collapse; border: 1px solid #ccc; }
-  th, td { text-align: left; padding: 10px; border: 1px solid #ddd; }
+  th, td { text-align: left; padding: 12px 10px; border: 1px solid #ddd; vertical-align: middle; }
   thead th { border-bottom: 2px solid #bbb; }
   th { color: var(--blu-chiaro); font-size: 0.85rem; text-transform: uppercase; }
   .badge-attivo {
@@ -112,12 +112,13 @@
   .cella-azioni {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 8px;
+    gap: 8px 10px;
     align-items: center;
+    padding: 4px 0;
   }
   .cella-azioni button {
     margin-right: 0;
-    padding: 6px 10px;
+    padding: 7px 12px;
     font-size: 0.82rem;
     white-space: nowrap;
   }
@@ -125,7 +126,7 @@
     width: 1px;
     align-self: stretch;
     background: #ddd;
-    margin: 0 2px;
+    margin: 0 6px;
   }
   .cella-azioni .btn-sessione {
     background: white;
@@ -310,7 +311,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 16</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 17</div>
 
 <div id="messaggio-globale"></div>
 
@@ -355,7 +356,7 @@
   <div id="lista-caricamento" class="caricamento">Caricamento in corso...</div>
   <table id="tabella-test" class="nascosto">
     <thead>
-      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Assenti</th><th>Soglia</th><th>Non passati</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
+      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Assenti</th><th>Soglia</th><th>Non passati</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Stato</th><th>Azioni</th></tr>
     </thead>
     <tbody id="corpo-tabella-test"></tbody>
   </table>
@@ -1077,16 +1078,6 @@ function erroreCaricamento(errore) {
   document.getElementById("lista-caricamento").textContent = "Errore nel caricamento: " + (errore && errore.message ? errore.message : errore);
 }
 
-let statoLiveTest = {};
-function calcolaOrarioUltimaModifica(test) {
-  const valoreAttuale = test.connessi + "|" + test.inSvolgimento + "|" + test.completati + "|" + test.azzeramenti;
-  const precedente = statoLiveTest[test.id];
-  if (!precedente || precedente.valore !== valoreAttuale) {
-    statoLiveTest[test.id] = { valore: valoreAttuale, orario: new Date().toLocaleString("it-IT") };
-  }
-  return statoLiveTest[test.id].orario;
-}
-
 function mostraElenco(elenco) {
   document.getElementById("lista-caricamento").classList.add("nascosto");
   document.getElementById("testo-ultimo-refresh").textContent = "Dati aggiornati alle " + new Date().toLocaleTimeString("it-IT");
@@ -1121,7 +1112,6 @@ function mostraElenco(elenco) {
       '<td>' + (!test.attivo ? cellaNonAttivo : test.inSvolgimento) + '</td>' +
       '<td style="background:' + (test.completati === test.numStudenti && test.numStudenti > 0 ? '#c8f0c8' : '#ffe3c2') + ';">' + test.completati + '</td>' +
       '<td>' + test.azzeramenti + '</td>' +
-      '<td>' + escapeHtml(calcolaOrarioUltimaModifica(test)) + '</td>' +
       '<td>' + (test.attivo ? '<span class="badge-attivo">ATTIVO</span>' : '<span class="badge-inattivo">non attivo</span>') + (test.inCorso ? '<br><span class="badge-in-corso">TEST IN CORSO</span>' : '') + (test.inPausa ? '<br><span class="badge-in-pausa">IN PAUSA</span>' : '') + avvisoLocandinaMancanteHtml(test) + '</td>' +
       '<td></td>';
     const cellaAzioni = riga.querySelector('td:last-child');
@@ -1176,15 +1166,17 @@ function mostraElenco(elenco) {
     btnDuplica.onclick = () => duplicaTestConConferma(test.id);
     cellaAzioni.appendChild(btnDuplica);
 
-    const btnNuovoTentativo = document.createElement("button");
-    btnNuovoTentativo.textContent = "Nuovo tentativo"; btnNuovoTentativo.className = "secondario";
-    btnNuovoTentativo.onclick = () => avviaPannelloNuovoTentativo(test.id, test.nome);
-    cellaAzioni.appendChild(btnNuovoTentativo);
+    separatore();
 
     const btnAssenti = document.createElement("button");
     btnAssenti.textContent = "🚫 Assenti"; btnAssenti.className = "secondario";
     btnAssenti.onclick = () => avviaPannelloAssenti(test.id, test.nome);
     cellaAzioni.appendChild(btnAssenti);
+
+    const btnNuovoTentativo = document.createElement("button");
+    btnNuovoTentativo.textContent = "Nuovo tentativo"; btnNuovoTentativo.className = "secondario";
+    btnNuovoTentativo.onclick = () => avviaPannelloNuovoTentativo(test.id, test.nome);
+    cellaAzioni.appendChild(btnNuovoTentativo);
 
     const btnScaricaRisultati = document.createElement("button");
     btnScaricaRisultati.textContent = "Scarica risultati"; btnScaricaRisultati.className = "secondario";
