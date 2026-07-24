@@ -82,6 +82,58 @@
     border-radius: 12px; font-size: 0.8rem; font-weight: 600;
     display: inline-block; margin-top: 4px; white-space: nowrap;
   }
+  /* ---- Schede test (layout a schede, non più tabella) ---- */
+  .scheda-test {
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    background: white;
+  }
+  .scheda-test.test-attivo-ora { border-color: var(--verde); border-width: 2px; }
+  .intestazione-scheda-test {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .intestazione-scheda-test .nome-test-scheda { font-size: 1.1rem; font-weight: 700; color: var(--blu); }
+  .riga-info-testuale {
+    color: #666; font-size: 0.86rem; margin-bottom: 12px; line-height: 1.6;
+  }
+  .riga-info-testuale strong { color: #333; }
+  .riga-numeri-vivi {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+  }
+  .numero-vivo {
+    background: var(--grigio);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+  .numero-vivo strong { font-size: 0.95rem; }
+  .numero-vivo.numero-attenzione { background: #f8d7da; }
+  .numero-vivo.numero-ok { background: #d4edda; }
+  .gruppo-pulsanti-test {
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+    margin-top: 4px;
+  }
+  .gruppo-pulsanti-test:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+  .etichetta-gruppo-pulsanti {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    margin-bottom: 6px;
+  }
+  .riga-pulsanti-scheda {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .riga-pulsanti-scheda button { margin-right: 0; padding: 7px 12px; font-size: 0.85rem; }
+
   .countdown-cell-admin {
     display: inline-block;
     color: white;
@@ -310,7 +362,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 12</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 14</div>
 
 <div id="messaggio-globale"></div>
 
@@ -353,12 +405,7 @@
   <h2 style="margin-top:0;">Test salvati</h2>
   <p id="testo-ultimo-refresh" style="color:#888; font-size:0.85rem; margin-bottom:12px;"></p>
   <div id="lista-caricamento" class="caricamento">Caricamento in corso...</div>
-  <table id="tabella-test" class="nascosto">
-    <thead>
-      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Assenti</th><th>Soglia</th><th>Non passati</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
-    </thead>
-    <tbody id="corpo-tabella-test"></tbody>
-  </table>
+  <div id="elenco-schede-test" class="nascosto"></div>
   <p id="nessun-test" class="nascosto" style="color:#888;">Nessun test salvato. Creane uno nuovo qui sotto.</p>
 </div>
 
@@ -914,7 +961,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
     const rigaValori = [
       r.timestamp || "", r.nome || "", r.numeroSessione || "",
       r.punteggio + " di " + r.totaleDomande,
-      percentuale !== null ? Math.round(percentuale) + "%" + (soglia !== null ? (superato ? " ✅" : " ❌") : "") : "",
+      percentuale !== null ? percentuale / 100 : "",
       r.scadutoPerTempo || "NO", usciteFocus, formattaDurataFuoriFocus(r.tempoFuoriFocusMs || 0)
     ];
     (r.risposte || []).forEach(risposta => {
@@ -922,6 +969,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
       rigaValori.push(risposta.corretta === "SI" ? testoRisposta + " (Corretto)" : testoRisposta + " (Errata)");
     });
     const rigaAggiunta = foglio.addRow(rigaValori);
+    if (percentuale !== null) rigaAggiunta.getCell(5).numFmt = "0%";
     if (soglia !== null && superato !== null) {
       rigaAggiunta.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: superato ? COLORE_CORRETTA : COLORE_SBAGLIATA } };
       rigaAggiunta.getCell(5).font = { bold: true };
@@ -1098,35 +1146,57 @@ function mostraElenco(elenco) {
 
   if (elenco.length === 0) {
     document.getElementById("nessun-test").classList.remove("nascosto");
-    document.getElementById("tabella-test").classList.add("nascosto");
+    document.getElementById("elenco-schede-test").classList.add("nascosto");
     return;
   }
   document.getElementById("nessun-test").classList.add("nascosto");
-  document.getElementById("tabella-test").classList.remove("nascosto");
-  const corpo = document.getElementById("corpo-tabella-test");
-  corpo.innerHTML = "";
-  elenco.forEach(test => {
-    const riga = document.createElement("tr");
-    riga.innerHTML =
-      '<td>' + escapeHtml(test.nome) + '</td>' +
-      '<td>' + escapeHtml(test.pin) + '</td>' +
-      '<td>' + celleDurata(test) + '</td>' +
-      '<td>' + test.numDomande + '</td>' +
-      '<td>' + test.numStudenti + '</td>' +
-      '<td>' + (test.assenti.length > 0 ? '<span style="color:var(--rosso); font-weight:600;">' + test.assenti.length + '</span>' : '0') + '</td>' +
-      '<td>' + (test.sogliaPercentuale !== null ? test.sogliaPercentuale + '%' : '<span style="color:#aaa;">nessuna</span>') + '</td>' +
-      '<td>' + (test.sogliaPercentuale === null ? '<span style="color:#aaa;">—</span>' : (test.nonPassati > 0 ? '<span style="color:var(--rosso); font-weight:600;">' + test.nonPassati + '</span>' : '0')) + '</td>' +
-      '<td>' + test.connessi + '</td>' +
-      '<td>' + test.inSvolgimento + '</td>' +
-      '<td style="background:' + (test.completati === test.numStudenti && test.numStudenti > 0 ? '#c8f0c8' : '#ffe3c2') + ';">' + test.completati + '</td>' +
-      '<td>' + test.azzeramenti + '</td>' +
-      '<td>' + escapeHtml(calcolaOrarioUltimaModifica(test)) + '</td>' +
-      '<td>' + (test.attivo ? '<span class="badge-attivo">ATTIVO</span>' : '<span class="badge-inattivo">non attivo</span>') + (test.inCorso ? '<br><span class="badge-in-corso">TEST IN CORSO</span>' : '') + (test.inPausa ? '<br><span class="badge-in-pausa">IN PAUSA</span>' : '') + avvisoLocandinaMancanteHtml(test) + '</td>' +
-      '<td></td>';
-    const cellaAzioni = riga.querySelector('td:last-child');
-    cellaAzioni.className = "cella-azioni";
+  const contenitore = document.getElementById("elenco-schede-test");
+  contenitore.classList.remove("nascosto");
+  contenitore.innerHTML = "";
 
-    const separatore = () => { const s = document.createElement("span"); s.className = "separatore-azioni"; cellaAzioni.appendChild(s); };
+  elenco.forEach(test => {
+    const scheda = document.createElement("div");
+    scheda.className = "scheda-test" + (test.attivo ? " test-attivo-ora" : "");
+
+    const intestazione = document.createElement("div");
+    intestazione.className = "intestazione-scheda-test";
+    intestazione.innerHTML =
+      '<span class="nome-test-scheda">' + escapeHtml(test.nome) + '</span>' +
+      (test.attivo ? '<span class="badge-attivo">ATTIVO</span>' : '<span class="badge-inattivo">non attivo</span>') +
+      (test.inCorso ? '<span class="badge-in-corso">TEST IN CORSO</span>' : '') +
+      (test.inPausa ? '<span class="badge-in-pausa">IN PAUSA</span>' : '') +
+      avvisoLocandinaMancanteHtml(test);
+    scheda.appendChild(intestazione);
+
+    const rigaInfo = document.createElement("div");
+    rigaInfo.className = "riga-info-testuale";
+    rigaInfo.innerHTML =
+      '<strong>PIN</strong> ' + escapeHtml(test.pin) + ' &nbsp;·&nbsp; ' +
+      '<strong>Durata</strong> ' + celleDurata(test) + ' &nbsp;·&nbsp; ' +
+      '<strong>Domande</strong> ' + test.numDomande + ' &nbsp;·&nbsp; ' +
+      '<strong>Allievi</strong> ' + test.numStudenti + ' &nbsp;·&nbsp; ' +
+      '<strong>Soglia</strong> ' + (test.sogliaPercentuale !== null ? test.sogliaPercentuale + '%' : 'nessuna') + ' &nbsp;·&nbsp; ' +
+      '<strong>Sessioni fatte</strong> ' + test.azzeramenti + ' &nbsp;·&nbsp; ' +
+      '<strong>Ultimo aggiornamento</strong> ' + escapeHtml(calcolaOrarioUltimaModifica(test));
+    scheda.appendChild(rigaInfo);
+
+    const rigaNumeri = document.createElement("div");
+    rigaNumeri.className = "riga-numeri-vivi";
+    const numeroVivo = (etichetta, valore, classeExtra) => '<span class="numero-vivo' + (classeExtra ? ' ' + classeExtra : '') + '"><strong>' + valore + '</strong> ' + etichetta + '</span>';
+    rigaNumeri.innerHTML =
+      numeroVivo("assenti", test.assenti.length, test.assenti.length > 0 ? "numero-attenzione" : "") +
+      numeroVivo("connessi", test.connessi) +
+      numeroVivo("in svolgimento", test.inSvolgimento) +
+      numeroVivo("completati", test.completati, (test.completati === test.numStudenti && test.numStudenti > 0) ? "numero-ok" : "") +
+      (test.sogliaPercentuale !== null ? numeroVivo("non passati", test.nonPassati, test.nonPassati > 0 ? "numero-attenzione" : "numero-ok") : "");
+    scheda.appendChild(rigaNumeri);
+
+    // ---- Gruppo 1: gestione della sessione in aula ----
+    const gruppoSessione = document.createElement("div");
+    gruppoSessione.className = "gruppo-pulsanti-test";
+    gruppoSessione.innerHTML = '<div class="etichetta-gruppo-pulsanti">Sessione in aula</div>';
+    const rigaSessione = document.createElement("div");
+    rigaSessione.className = "riga-pulsanti-scheda";
 
     const btnAttivaDisattiva = document.createElement("button");
     if (!test.attivo) {
@@ -1137,9 +1207,7 @@ function mostraElenco(elenco) {
       btnAttivaDisattiva.className = "secondario";
       btnAttivaDisattiva.onclick = () => disattivaTuttiConGestione();
     }
-    cellaAzioni.appendChild(btnAttivaDisattiva);
-
-    separatore();
+    rigaSessione.appendChild(btnAttivaDisattiva);
 
     const btnAvvia = document.createElement("button");
     btnAvvia.textContent = "Avvia il test per tutti";
@@ -1147,58 +1215,67 @@ function mostraElenco(elenco) {
     if (!test.attivo) { btnAvvia.disabled = true; btnAvvia.title = "Il test non è attivo, attivalo prima di avviarlo per tutti"; }
     else if (test.inCorso) { btnAvvia.disabled = true; btnAvvia.title = "Il test è già stato avviato per tutti"; }
     else { btnAvvia.onclick = () => avviaTestConConferma(test.id, test.nome); }
-    cellaAzioni.appendChild(btnAvvia);
+    rigaSessione.appendChild(btnAvvia);
 
     const btnPausaRiprendi = document.createElement("button");
     btnPausaRiprendi.className = "btn-sessione";
     if (!test.inCorso) { btnPausaRiprendi.textContent = "Pausa"; btnPausaRiprendi.disabled = true; btnPausaRiprendi.title = "Il test non è ancora in corso, non c'è nulla da mettere in pausa"; }
     else if (test.inPausa) { btnPausaRiprendi.textContent = "Riprendi"; btnPausaRiprendi.onclick = () => riprendiTestConConferma(test.id); }
     else { btnPausaRiprendi.textContent = "Pausa"; btnPausaRiprendi.onclick = () => pausaTestConConferma(test); }
-    cellaAzioni.appendChild(btnPausaRiprendi);
+    rigaSessione.appendChild(btnPausaRiprendi);
 
     const btnTerminaManualmente = document.createElement("button");
     btnTerminaManualmente.textContent = "Termina manualmente";
     btnTerminaManualmente.className = "btn-sessione";
     if (!test.inCorso) { btnTerminaManualmente.disabled = true; btnTerminaManualmente.title = "Il test non è in corso, non c'è nessun turno da chiudere"; }
     else { btnTerminaManualmente.onclick = () => terminaManualmenteConConferma(test.id); }
-    cellaAzioni.appendChild(btnTerminaManualmente);
+    rigaSessione.appendChild(btnTerminaManualmente);
 
-    separatore();
+    gruppoSessione.appendChild(rigaSessione);
+    scheda.appendChild(gruppoSessione);
+
+    // ---- Gruppo 2: gestione del test ----
+    const gruppoTest = document.createElement("div");
+    gruppoTest.className = "gruppo-pulsanti-test";
+    gruppoTest.innerHTML = '<div class="etichetta-gruppo-pulsanti">Gestione test</div>';
+    const rigaTest = document.createElement("div");
+    rigaTest.className = "riga-pulsanti-scheda";
 
     const btnModifica = document.createElement("button");
     btnModifica.textContent = "Modifica"; btnModifica.className = "secondario";
     btnModifica.onclick = () => avviaModifica(test.id);
-    cellaAzioni.appendChild(btnModifica);
+    rigaTest.appendChild(btnModifica);
 
     const btnDuplica = document.createElement("button");
     btnDuplica.textContent = "Duplica test"; btnDuplica.className = "secondario";
     btnDuplica.onclick = () => duplicaTestConConferma(test.id);
-    cellaAzioni.appendChild(btnDuplica);
+    rigaTest.appendChild(btnDuplica);
 
     const btnNuovoTentativo = document.createElement("button");
     btnNuovoTentativo.textContent = "Nuovo tentativo"; btnNuovoTentativo.className = "secondario";
     btnNuovoTentativo.onclick = () => avviaPannelloNuovoTentativo(test.id, test.nome);
-    cellaAzioni.appendChild(btnNuovoTentativo);
+    rigaTest.appendChild(btnNuovoTentativo);
 
     const btnAssenti = document.createElement("button");
     btnAssenti.textContent = "🚫 Assenti"; btnAssenti.className = "secondario";
     btnAssenti.onclick = () => avviaPannelloAssenti(test.id, test.nome);
-    cellaAzioni.appendChild(btnAssenti);
+    rigaTest.appendChild(btnAssenti);
 
     const btnScaricaRisultati = document.createElement("button");
     btnScaricaRisultati.textContent = "Scarica risultati"; btnScaricaRisultati.className = "secondario";
     if (!test.completati || test.completati === 0) { btnScaricaRisultati.disabled = true; btnScaricaRisultati.title = "Nessun allievo ha ancora completato questo test, non c'e' ancora nulla da scaricare"; }
     else { btnScaricaRisultati.onclick = () => scaricaRisultati(test.id, test.nome); }
-    cellaAzioni.appendChild(btnScaricaRisultati);
-
-    separatore();
+    rigaTest.appendChild(btnScaricaRisultati);
 
     const btnElimina = document.createElement("button");
     btnElimina.textContent = "Elimina"; btnElimina.className = "pericolo";
     btnElimina.onclick = () => eliminaTestConConferma(test.id, test.nome);
-    cellaAzioni.appendChild(btnElimina);
+    rigaTest.appendChild(btnElimina);
 
-    corpo.appendChild(riga);
+    gruppoTest.appendChild(rigaTest);
+    scheda.appendChild(gruppoTest);
+
+    contenitore.appendChild(scheda);
   });
 }
 

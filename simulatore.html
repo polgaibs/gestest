@@ -231,7 +231,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 16</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 17</div>
 
 <header>
   <h1>⚡ GesTest — Simulatore di carico</h1>
@@ -422,6 +422,7 @@ let DOMANDE = [];
 let DURATA_MINUTI = 0;
 let STUDENTI = [];
 let ASSENTI_ATTUALI = new Set();
+let NUMERO_SESSIONE = 1;
 
 async function caricaTestAttivo() {
   const pannello = document.getElementById("pannello-test");
@@ -447,6 +448,9 @@ async function caricaTestAttivo() {
     DURATA_MINUTI = dati.durataMinuti || 0;
     STUDENTI = dati.studenti || [];
     ASSENTI_ATTUALI = new Set(dati.assenti || []);
+    // Stesso calcolo del quiz vero: quante volte il turno è già
+    // stato azzerato prima di questo, più uno.
+    NUMERO_SESSIONE = (dati.azzeramenti || 0) + 1;
     const disponibili = STUDENTI.length - ASSENTI_ATTUALI.size;
     // Il campo "Bot" non deve mai permettere di digitare più nomi di
     // quanti ne siano davvero disponibili (lista meno assenti): un
@@ -742,6 +746,7 @@ async function consegnaBot(nomeBot, scadutoPerTempo) {
     risposte: risposte,
     annullato: false,
     numeroTentativo: 1,
+    numeroSessione: NUMERO_SESSIONE,
     usciteFocus: usciteFocus,
     tempoFuoriFocusMs: tempoFuoriFocusMs
   };
