@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 23</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 24</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -407,8 +407,7 @@
       </div>
 
       <div id="blocco-riepilogo-sessione" class="nascosto" style="max-width:640px; margin:0 auto; text-align:center;">
-        <h2 style="color:var(--oro); font-size:clamp(1.5rem, 3.4vw, 2.4rem); margin-bottom:0.6vh;">Sessione nr. <span id="riepilogo-numero-sessione">1</span> conclusa</h2>
-        <p class="istruzione-secondaria" style="margin-bottom:2vh;">Questo riepilogo non viene salvato: sparisce ricaricando la pagina o aprendo di nuovo il browser.</p>
+        <h2 style="color:var(--oro); font-size:clamp(1.5rem, 3.4vw, 2.4rem); margin-bottom:2vh;">Sessione nr. <span id="riepilogo-numero-sessione">1</span> conclusa</h2>
         <div class="contatori">
           <div class="contatore">
             <div class="icona">🙋</div>
@@ -1065,15 +1064,26 @@ function aggiornaStatistiche() {
     .catch(() => {});
 }
 
-// Congela la pagina sulla schermata di riepilogo: niente viene
-// salvato da nessuna parte, è solo quello che questa scheda del
-// browser mostra finché non la ricarichi (il pulsante "Nuova
-// sessione" fa esattamente quello).
+// Congela la pagina sulla schermata di riepilogo, e salva gli stessi
+// numeri su Firestore (una sottocollezione dedicata sotto il test)
+// perché l'export Excel possa poi ricostruire lo storico di tutte le
+// sessioni fatte. La schermata a video resta comunque una "fotografia"
+// di questa scheda del browser: sparisce ricaricando o riaprendo, ma
+// i numeri restano salvati sul database.
 function catturaEMostraRiepilogoSessione(riepilogo) {
   mostrandoRiepilogoSessione = true;
   if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
   fermaCountdownLanding();
   fermaBattitoLocandina();
+
+  setDoc(doc(db, "test", ID_TEST_ATTIVO, "sessioni", String(riepilogo.numeroSessione)), {
+    numeroSessione: riepilogo.numeroSessione,
+    partecipanti: riepilogo.partecipanti,
+    completati: riepilogo.completati,
+    abbandoni: riepilogo.abbandoni,
+    mancantiGenerali: riepilogo.mancantiGenerali,
+    timestamp: new Date().toLocaleString("it-IT")
+  }).catch(() => {});
 
   document.getElementById("blocco-caricamento").classList.add("nascosto");
   document.getElementById("blocco-nessun-test").classList.add("nascosto");

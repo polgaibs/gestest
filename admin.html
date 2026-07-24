@@ -310,7 +310,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 11</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 12</div>
 
 <div id="messaggio-globale"></div>
 
@@ -355,7 +355,7 @@
   <div id="lista-caricamento" class="caricamento">Caricamento in corso...</div>
   <table id="tabella-test" class="nascosto">
     <thead>
-      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Assenti</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
+      <tr><th>Nome test</th><th>PIN</th><th>Durata</th><th>Domande</th><th>Allievi</th><th>Assenti</th><th>Soglia</th><th>Non passati</th><th>Connessi</th><th>In svolgimento</th><th>Completati</th><th>Sessioni test</th><th>Ultimo aggiornamento</th><th>Stato</th><th>Azioni</th></tr>
     </thead>
     <tbody id="corpo-tabella-test"></tbody>
   </table>
@@ -467,6 +467,7 @@ const providerGoogle = new GoogleAuthProvider();
 function riferimentoTest(idTest) { return doc(db, "test", idTest); }
 function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
 function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
+function riferimentoSessioni(idTest) { return collection(db, "test", idTest, "sessioni"); }
 function riferimentoStatoAttivo() { return doc(db, "stato", "attivo"); }
 
 // Normalizzazione del nome allievo, identica a quella usata dal
@@ -554,6 +555,16 @@ async function elencoTest() {
     const istantaneaRisultati = await getDocs(
       query(riferimentoRisultati(documento.id), where("annullato", "==", false))
     );
+    const soglia = (dati.sogliaPercentuale === undefined || dati.sogliaPercentuale === null) ? null : Number(dati.sogliaPercentuale);
+    let nonPassati = 0;
+    if (soglia !== null) {
+      istantaneaRisultati.forEach(documentoRisultato => {
+        const r = documentoRisultato.data();
+        if (typeof r.punteggio === "number" && r.totaleDomande) {
+          if ((r.punteggio / r.totaleDomande) * 100 < soglia) nonPassati++;
+        }
+      });
+    }
     risultato.push({
       id: documento.id,
       nome: dati.nome || "",
@@ -563,6 +574,8 @@ async function elencoTest() {
       numStudenti: (dati.studenti || []).length,
       dataCreazione: dati.dataCreazione || "",
       durataMinuti: (dati.durataMinuti === undefined || dati.durataMinuti === null) ? 20 : Number(dati.durataMinuti),
+      sogliaPercentuale: soglia,
+      nonPassati: nonPassati,
       completati: istantaneaRisultati.size,
       azzeramenti: dati.azzeramenti || 0,
       avviatoTimestamp: dati.avviatoTimestamp || null,
@@ -654,6 +667,7 @@ async function svuotaSottocollezione(riferimentoCollezione) {
 async function eliminaTest(id) {
   await svuotaSottocollezione(riferimentoPresenze(id));
   await svuotaSottocollezione(riferimentoRisultati(id));
+  await svuotaSottocollezione(riferimentoSessioni(id));
 
   const istantaneaLog = await getDocs(query(collection(db, "log"), where("idTest", "==", id)));
   if (!istantaneaLog.empty) {
@@ -809,6 +823,7 @@ async function arricchisciConStatoLive(test) {
 // qui uso ExcelJS solo per questo export.
 const COLORE_CORRETTA = "FFB6E3B6";
 const COLORE_SBAGLIATA = "FFF4B6B6";
+const COLORE_INTESTAZIONE = "FF1D3557";
 
 function formattaDurataFuoriFocus(ms) {
   if (!ms) return "";
@@ -818,21 +833,73 @@ function formattaDurataFuoriFocus(ms) {
 }
 
 async function scaricaRisultatiExcel(idTest, nomeTest) {
-  const istantanea = await getDocs(riferimentoRisultati(idTest));
-  if (istantanea.empty) return { esito: "vuoto" };
+  const [istantaneaRisultati, istantaneaTest, istantaneaSessioni] = await Promise.all([
+    getDocs(riferimentoRisultati(idTest)),
+    getDoc(riferimentoTest(idTest)),
+    getDocs(riferimentoSessioni(idTest))
+  ]);
+  if (istantaneaRisultati.empty) return { esito: "vuoto" };
+
+  const datiTest = istantaneaTest.exists() ? istantaneaTest.data() : {};
+  const soglia = (datiTest.sogliaPercentuale === undefined || datiTest.sogliaPercentuale === null) ? null : Number(datiTest.sogliaPercentuale);
 
   // Solo i risultati non annullati, ordinati per data di invio.
-  const righe = istantanea.docs
+  const righe = istantaneaRisultati.docs
     .map(documento => documento.data())
     .filter(r => !r.annullato)
     .sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
 
+  const sessioni = istantaneaSessioni.docs
+    .map(documento => documento.data())
+    .sort((a, b) => (a.numeroSessione || 0) - (b.numeroSessione || 0));
+
   const numeroMassimoDomande = Math.max(0, ...righe.map(r => (r.risposte || []).length));
 
   const cartella = new ExcelJS.Workbook();
+
+  // ---- Foglio 1: Riepilogo test, sempre il primo che si vede aprendo il file ----
+  const foglioRiepilogo = cartella.addWorksheet("Riepilogo test");
+  foglioRiepilogo.columns = [{ width: 26 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 20 }];
+
+  function rigaTitoloRiepilogo(testo) {
+    const r = foglioRiepilogo.addRow([testo]);
+    r.font = { bold: true, size: 13, color: { argb: "FFFFFFFF" } };
+    r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } };
+    foglioRiepilogo.mergeCells(r.number, 1, r.number, 5);
+    return r;
+  }
+  function rigaDatoRiepilogo(etichetta, valore) {
+    const r = foglioRiepilogo.addRow([etichetta, valore]);
+    r.getCell(1).font = { bold: true };
+    return r;
+  }
+
+  rigaTitoloRiepilogo("Struttura del test");
+  rigaDatoRiepilogo("Nome test", datiTest.nome || nomeTest);
+  rigaDatoRiepilogo("Numero di domande", (datiTest.domande || []).length);
+  rigaDatoRiepilogo("Allievi in elenco", (datiTest.studenti || []).length);
+  rigaDatoRiepilogo("Assenti impostati ora", (datiTest.assenti || []).length);
+  rigaDatoRiepilogo("Durata", datiTest.durataMinuti > 0 ? datiTest.durataMinuti + " minuti" : "Nessun limite di tempo");
+  rigaDatoRiepilogo("Soglia di superamento", soglia !== null ? soglia + "%" : "Nessuna soglia impostata");
+  rigaDatoRiepilogo("Sessioni concluse finora", sessioni.length);
+  foglioRiepilogo.addRow([]);
+
+  if (sessioni.length > 0) {
+    rigaTitoloRiepilogo("Storico sessioni");
+    const intestazioneSessioni = foglioRiepilogo.addRow(["Sessione nr.", "Partecipanti", "Completati", "Abbandoni", "Mancanti in generale"]);
+    intestazioneSessioni.font = { bold: true };
+    intestazioneSessioni.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E8E8" } }; });
+    sessioni.forEach(s => {
+      foglioRiepilogo.addRow([s.numeroSessione, s.partecipanti, s.completati, s.abbandoni, s.mancantiGenerali]);
+    });
+  } else {
+    foglioRiepilogo.addRow(["Nessuna sessione ancora conclusa su questo test."]);
+  }
+
+  // ---- Foglio 2: Risultati di ogni allievo ----
   const foglio = cartella.addWorksheet("Risultati");
 
-  const intestazione = ["Data invio", "Cognome e Nome", "Sessione", "Punteggio", "Su totale domande", "Scaduto per tempo", "Uscite dal focus", "Tempo fuori focus"];
+  const intestazione = ["Data invio", "Cognome e Nome", "Sessione", "Punteggio", "Percentuale", "Scaduto per tempo", "Uscite dal focus", "Tempo fuori focus"];
   for (let i = 0; i < numeroMassimoDomande; i++) {
     intestazione.push(righe.find(r => r.risposte && r.risposte[i]) ?.risposte[i].testo || ("Domanda " + (i + 1)));
   }
@@ -842,15 +909,23 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
 
   righe.forEach(r => {
     const usciteFocus = r.usciteFocus || 0;
+    const percentuale = (typeof r.punteggio === "number" && r.totaleDomande) ? (r.punteggio / r.totaleDomande) * 100 : null;
+    const superato = soglia !== null && percentuale !== null ? percentuale >= soglia : null;
     const rigaValori = [
-      r.timestamp || "", r.nome || "", r.numeroSessione || "", r.punteggio, r.totaleDomande, r.scadutoPerTempo || "NO",
-      usciteFocus, formattaDurataFuoriFocus(r.tempoFuoriFocusMs || 0)
+      r.timestamp || "", r.nome || "", r.numeroSessione || "",
+      r.punteggio + " di " + r.totaleDomande,
+      percentuale !== null ? Math.round(percentuale) + "%" + (soglia !== null ? (superato ? " ✅" : " ❌") : "") : "",
+      r.scadutoPerTempo || "NO", usciteFocus, formattaDurataFuoriFocus(r.tempoFuoriFocusMs || 0)
     ];
     (r.risposte || []).forEach(risposta => {
       const testoRisposta = risposta.risposta || "(nessuna risposta)";
       rigaValori.push(risposta.corretta === "SI" ? testoRisposta + " (Corretto)" : testoRisposta + " (Errata)");
     });
     const rigaAggiunta = foglio.addRow(rigaValori);
+    if (soglia !== null && superato !== null) {
+      rigaAggiunta.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: superato ? COLORE_CORRETTA : COLORE_SBAGLIATA } };
+      rigaAggiunta.getCell(5).font = { bold: true };
+    }
     if (usciteFocus > 0) {
       rigaAggiunta.getCell(7).font = { bold: true, color: { argb: "FFB00020" } };
       rigaAggiunta.getCell(8).font = { bold: true, color: { argb: "FFB00020" } };
@@ -1039,6 +1114,8 @@ function mostraElenco(elenco) {
       '<td>' + test.numDomande + '</td>' +
       '<td>' + test.numStudenti + '</td>' +
       '<td>' + (test.assenti.length > 0 ? '<span style="color:var(--rosso); font-weight:600;">' + test.assenti.length + '</span>' : '0') + '</td>' +
+      '<td>' + (test.sogliaPercentuale !== null ? test.sogliaPercentuale + '%' : '<span style="color:#aaa;">nessuna</span>') + '</td>' +
+      '<td>' + (test.sogliaPercentuale === null ? '<span style="color:#aaa;">—</span>' : (test.nonPassati > 0 ? '<span style="color:var(--rosso); font-weight:600;">' + test.nonPassati + '</span>' : '0')) + '</td>' +
       '<td>' + test.connessi + '</td>' +
       '<td>' + test.inSvolgimento + '</td>' +
       '<td style="background:' + (test.completati === test.numStudenti && test.numStudenti > 0 ? '#c8f0c8' : '#ffe3c2') + ';">' + test.completati + '</td>' +
