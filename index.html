@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 24</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 25</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -996,7 +996,15 @@ function aggiornaStatistiche() {
       // andata a finire per lui.
       const nomiCompletatiSessioneAttuale = new Set([...nomiCompletati].filter(n => nomiSessioneAttuale.has(n)));
       const completatiSessioniPrecedenti = completati - nomiCompletatiSessioneAttuale.size;
-      const totaleRisposto = completatiSessioniPrecedenti + nomiSessioneAttuale.size;
+      // Chi è ancora fermo in sala d'attesa (non ancora partito a
+      // rispondere) non va contato: appena il test viene avviato,
+      // per una manciata di secondi tutti i collegati risultano
+      // ancora "in attesa" prima di passare "in svolgimento", e
+      // contarli già nel totale darebbe un conto assurdo tipo "0 su
+      // 40, tutti hanno consegnato" (perché nessuno risulta ancora
+      // "in svolgimento", ma nemmeno ha davvero iniziato).
+      const partecipantiIniziatiSessione = nomiSessioneAttuale.size - inAttesa;
+      const totaleRisposto = completatiSessioniPrecedenti + partecipantiIniziatiSessione;
       const riquadroAndamento = document.getElementById("riquadro-andamento");
       if (!TURNO_IN_CORSO || totaleRisposto === 0) {
         riquadroAndamento.classList.add("nascosto");
