@@ -111,22 +111,31 @@
 
   .cella-azioni {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px 10px;
-    align-items: center;
-    padding: 4px 0;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 6px 0;
   }
-  .cella-azioni button {
+  .colonna-azioni {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-right: 18px;
+    border-right: 1px solid #eee;
+  }
+  .colonna-azioni:last-child { border-right: none; padding-right: 0; }
+  .etichetta-colonna-azioni {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    margin-bottom: 2px;
+  }
+  .colonna-azioni button {
     margin-right: 0;
     padding: 7px 12px;
     font-size: 0.82rem;
     white-space: nowrap;
-  }
-  .cella-azioni .separatore-azioni {
-    width: 1px;
-    align-self: stretch;
-    background: #ddd;
-    margin: 0 6px;
+    width: 100%;
   }
   .cella-azioni .btn-sessione {
     background: white;
@@ -311,7 +320,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 17</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 18</div>
 
 <div id="messaggio-globale"></div>
 
@@ -1117,7 +1126,19 @@ function mostraElenco(elenco) {
     const cellaAzioni = riga.querySelector('td:last-child');
     cellaAzioni.className = "cella-azioni";
 
-    const separatore = () => { const s = document.createElement("span"); s.className = "separatore-azioni"; cellaAzioni.appendChild(s); };
+    const creaColonna = (etichetta) => {
+      const colonna = document.createElement("div");
+      colonna.className = "colonna-azioni";
+      const label = document.createElement("div");
+      label.className = "etichetta-colonna-azioni";
+      label.textContent = etichetta;
+      colonna.appendChild(label);
+      cellaAzioni.appendChild(colonna);
+      return colonna;
+    };
+
+    // ---- Colonna 1: sessione in aula ----
+    const colSessione = creaColonna("Sessione in aula");
 
     const btnAttivaDisattiva = document.createElement("button");
     if (!test.attivo) {
@@ -1128,9 +1149,7 @@ function mostraElenco(elenco) {
       btnAttivaDisattiva.className = "secondario";
       btnAttivaDisattiva.onclick = () => disattivaTuttiConGestione();
     }
-    cellaAzioni.appendChild(btnAttivaDisattiva);
-
-    separatore();
+    colSessione.appendChild(btnAttivaDisattiva);
 
     const btnAvvia = document.createElement("button");
     btnAvvia.textContent = "Avvia il test per tutti";
@@ -1138,58 +1157,61 @@ function mostraElenco(elenco) {
     if (!test.attivo) { btnAvvia.disabled = true; btnAvvia.title = "Il test non è attivo, attivalo prima di avviarlo per tutti"; }
     else if (test.inCorso) { btnAvvia.disabled = true; btnAvvia.title = "Il test è già stato avviato per tutti"; }
     else { btnAvvia.onclick = () => avviaTestConConferma(test.id, test.nome); }
-    cellaAzioni.appendChild(btnAvvia);
+    colSessione.appendChild(btnAvvia);
 
     const btnPausaRiprendi = document.createElement("button");
     btnPausaRiprendi.className = "btn-sessione";
     if (!test.inCorso) { btnPausaRiprendi.textContent = "Pausa"; btnPausaRiprendi.disabled = true; btnPausaRiprendi.title = "Il test non è ancora in corso, non c'è nulla da mettere in pausa"; }
     else if (test.inPausa) { btnPausaRiprendi.textContent = "Riprendi"; btnPausaRiprendi.onclick = () => riprendiTestConConferma(test.id); }
     else { btnPausaRiprendi.textContent = "Pausa"; btnPausaRiprendi.onclick = () => pausaTestConConferma(test); }
-    cellaAzioni.appendChild(btnPausaRiprendi);
+    colSessione.appendChild(btnPausaRiprendi);
 
     const btnTerminaManualmente = document.createElement("button");
     btnTerminaManualmente.textContent = "Termina manualmente";
     btnTerminaManualmente.className = "btn-sessione";
     if (!test.inCorso) { btnTerminaManualmente.disabled = true; btnTerminaManualmente.title = "Il test non è in corso, non c'è nessun turno da chiudere"; }
     else { btnTerminaManualmente.onclick = () => terminaManualmenteConConferma(test.id); }
-    cellaAzioni.appendChild(btnTerminaManualmente);
+    colSessione.appendChild(btnTerminaManualmente);
 
-    separatore();
+    // ---- Colonna 2: configurazione test ----
+    const colConfigurazione = creaColonna("Configurazione test");
 
     const btnModifica = document.createElement("button");
     btnModifica.textContent = "Modifica"; btnModifica.className = "secondario";
     btnModifica.onclick = () => avviaModifica(test.id);
-    cellaAzioni.appendChild(btnModifica);
+    colConfigurazione.appendChild(btnModifica);
 
     const btnDuplica = document.createElement("button");
     btnDuplica.textContent = "Duplica test"; btnDuplica.className = "secondario";
     btnDuplica.onclick = () => duplicaTestConConferma(test.id);
-    cellaAzioni.appendChild(btnDuplica);
+    colConfigurazione.appendChild(btnDuplica);
 
-    separatore();
+    // ---- Colonna 3: allievi e risultati ----
+    const colAllievi = creaColonna("Allievi e risultati");
 
     const btnAssenti = document.createElement("button");
     btnAssenti.textContent = "🚫 Assenti"; btnAssenti.className = "secondario";
     btnAssenti.onclick = () => avviaPannelloAssenti(test.id, test.nome);
-    cellaAzioni.appendChild(btnAssenti);
+    colAllievi.appendChild(btnAssenti);
 
     const btnNuovoTentativo = document.createElement("button");
     btnNuovoTentativo.textContent = "Nuovo tentativo"; btnNuovoTentativo.className = "secondario";
     btnNuovoTentativo.onclick = () => avviaPannelloNuovoTentativo(test.id, test.nome);
-    cellaAzioni.appendChild(btnNuovoTentativo);
+    colAllievi.appendChild(btnNuovoTentativo);
 
     const btnScaricaRisultati = document.createElement("button");
     btnScaricaRisultati.textContent = "Scarica risultati"; btnScaricaRisultati.className = "secondario";
     if (!test.completati || test.completati === 0) { btnScaricaRisultati.disabled = true; btnScaricaRisultati.title = "Nessun allievo ha ancora completato questo test, non c'e' ancora nulla da scaricare"; }
     else { btnScaricaRisultati.onclick = () => scaricaRisultati(test.id, test.nome); }
-    cellaAzioni.appendChild(btnScaricaRisultati);
+    colAllievi.appendChild(btnScaricaRisultati);
 
-    separatore();
+    // ---- Colonna 4: elimina, isolata da sola ----
+    const colElimina = creaColonna("Elimina test");
 
     const btnElimina = document.createElement("button");
     btnElimina.textContent = "Elimina"; btnElimina.className = "pericolo";
     btnElimina.onclick = () => eliminaTestConConferma(test.id, test.nome);
-    cellaAzioni.appendChild(btnElimina);
+    colElimina.appendChild(btnElimina);
 
     corpo.appendChild(riga);
   });
