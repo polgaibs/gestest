@@ -197,7 +197,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 9</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">REV. 11</div>
 
 <header>
   <h1>📋 GesTest — Live</h1>
@@ -228,6 +228,7 @@
   <div class="statistica">
     <div class="etichetta">Consegnati</div>
     <div class="valore colore-verde" id="stat-consegnati">0</div>
+    <div class="nota" id="stat-consegnati-nota">di questa sessione</div>
   </div>
   <div class="statistica">
     <div class="etichetta">In svolgimento</div>
@@ -606,7 +607,12 @@ function aspettaEAzzera(idTest, controlli) {
 // ============================================================
 function classificaAllievo(nomeCompleto) {
   const chiave = normalizza(nomeCompleto);
-  if (risultatiCorrenti.has(chiave)) return "consegnato";
+  // "Consegnato" deve valere solo per la sessione attuale, non per
+  // sempre: le presenze si svuotano del tutto a ogni azzeramento di
+  // turno, quindi chiunque compaia qui appartiene per forza alla
+  // sessione in corso. Un risultato senza una presenza corrispondente
+  // in questa sessione è di una sessione precedente, già chiusa.
+  if (risultatiCorrenti.has(chiave) && presenzeCorrenti.has(chiave)) return "consegnato";
   if (ASSENTI_ATTUALI.has(chiave)) return "assente";
   const presenza = presenzeCorrenti.get(chiave);
   if (!presenza) return "mancante";
@@ -634,6 +640,7 @@ function ricalcolaERendi() {
   document.getElementById("stat-connessi").textContent = connessi;
 
   document.getElementById("stat-consegnati").textContent = secchi.consegnato.length;
+  document.getElementById("stat-consegnati-nota").textContent = secchi.consegnato.length + " di " + risultatiCorrenti.size + " totali";
   document.getElementById("stat-svolgimento").textContent = secchi.svolgimento.length;
   document.getElementById("stat-attesa").textContent = secchi.attesa.length;
   document.getElementById("stat-abbandonati").textContent = secchi.abbandonato.length;
