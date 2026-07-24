@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 29</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 30</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -988,23 +988,14 @@ function aggiornaStatistiche() {
       // stesso giorno), "completati" conta i consegnati di SEMPRE su
       // questo test, comprese le sessioni già chiuse, mentre il resto
       // qui sotto è tutto scoperto SOLO sulla sessione attuale (le
-      // presenze si svuotano a ogni azzeramento). Sommare i due senza
-      // distinguerli darebbe un totale sbagliato. Il conto giusto:
-      // quanti hanno consegnato in sessioni precedenti (i consegnati
-      // di sempre meno quelli di questa sessione) più chiunque abbia
-      // partecipato a QUESTA sessione, indipendentemente da come è
-      // andata a finire per lui.
+      // presenze si svuotano a ogni azzeramento). Il totale giusto:
+      // consegnati nelle sessioni precedenti, più chiunque si sia
+      // collegato in QUESTA sessione, tolti gli abbandonati (che non
+      // consegneranno mai, quindi non hanno senso nel conto "attivo",
+      // ma restano segnalati a parte, in piccolo).
       const nomiCompletatiSessioneAttuale = new Set([...nomiCompletati].filter(n => nomiSessioneAttuale.has(n)));
       const completatiSessioniPrecedenti = completati - nomiCompletatiSessioneAttuale.size;
-      // Chi è ancora fermo in sala d'attesa (non ancora partito a
-      // rispondere) non va contato: appena il test viene avviato,
-      // per una manciata di secondi tutti i collegati risultano
-      // ancora "in attesa" prima di passare "in svolgimento", e
-      // contarli già nel totale darebbe un conto assurdo tipo "0 su
-      // 40, tutti hanno consegnato" (perché nessuno risulta ancora
-      // "in svolgimento", ma nemmeno ha davvero iniziato).
-      const partecipantiIniziatiSessione = nomiSessioneAttuale.size - inAttesa;
-      const totaleRisposto = completatiSessioniPrecedenti + partecipantiIniziatiSessione;
+      const totaleRisposto = completatiSessioniPrecedenti + Math.max(nomiSessioneAttuale.size - abbandonati, 0);
       const riquadroAndamento = document.getElementById("riquadro-andamento");
       if (!TURNO_IN_CORSO || totaleRisposto === 0) {
         riquadroAndamento.classList.add("nascosto");
@@ -1014,10 +1005,16 @@ function aggiornaStatistiche() {
         document.getElementById("testo-andamento").textContent = completati + " su " + totaleRisposto + " hanno consegnato";
         const percentuale = Math.round((completati / totaleRisposto) * 100);
         document.getElementById("barra-andamento-interna").style.width = percentuale + "%";
+        // Chi resta ancora da consegnare: se nessuno di loro risulta
+        // "in svolgimento" adesso, vuol dire che sono ancora tutti
+        // fermi in sala d'attesa, non che abbiano già finito.
+        const personeAncoraDaConsegnare = Math.max(totaleRisposto - completati, 0);
         document.getElementById("sottotesto-andamento").textContent =
-          partecipantiIniziatiSessione === 0
-            ? "In attesa che qualcuno di questa sessione inizi a rispondere"
-            : (inSvolgimento === 0 ? "Tutti hanno consegnato" : (inSvolgimento === 1 ? "1 persona sta ancora rispondendo" : inSvolgimento + " persone stanno ancora rispondendo"));
+          personeAncoraDaConsegnare === 0
+            ? "Tutti hanno consegnato"
+            : (inSvolgimento === 0
+                ? "In attesa che qualcuno di questa sessione inizi a rispondere"
+                : (inSvolgimento === 1 ? "1 persona sta ancora rispondendo" : inSvolgimento + " persone stanno ancora rispondendo"));
 
         const segnaleNeutro = document.getElementById("segnale-neutro");
         if (abbandonati > 0) {
