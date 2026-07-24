@@ -96,32 +96,43 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
   .intestazione-scheda-test .nome-test-scheda { font-size: 1.1rem; font-weight: 700; color: var(--blu); }
-  .riga-info-testuale {
-    color: #666; font-size: 0.86rem; margin-bottom: 12px; line-height: 1.6;
+
+  .corpo-scheda-test {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    flex-wrap: wrap;
   }
-  .riga-info-testuale strong { color: #333; }
-  .riga-numeri-vivi {
-    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+  .colonna-dati-test {
+    flex: 1 1 260px;
+    min-width: 220px;
   }
-  .numero-vivo {
-    background: var(--grigio);
-    border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 0.82rem;
-    white-space: nowrap;
+  .riga-dato {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.85rem;
   }
-  .numero-vivo strong { font-size: 0.95rem; }
-  .numero-vivo.numero-attenzione { background: #f8d7da; }
-  .numero-vivo.numero-ok { background: #d4edda; }
-  .gruppo-pulsanti-test {
-    padding-top: 10px;
-    border-top: 1px solid #eee;
-    margin-top: 4px;
+  .riga-dato:last-child { border-bottom: none; }
+  .riga-dato .etichetta-dato { color: #888; }
+  .riga-dato .valore-dato { color: #222; font-weight: 600; text-align: right; }
+  .riga-dato .valore-dato.dato-attenzione { color: var(--rosso); }
+  .riga-dato .valore-dato.dato-ok { color: var(--verde); }
+
+  .colonna-pulsanti-test {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-end;
   }
-  .gruppo-pulsanti-test:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+  .gruppo-pulsanti-test { text-align: right; }
   .etichetta-gruppo-pulsanti {
     font-size: 0.72rem;
     text-transform: uppercase;
@@ -130,7 +141,7 @@
     margin-bottom: 6px;
   }
   .riga-pulsanti-scheda {
-    display: flex; flex-wrap: wrap; gap: 6px;
+    display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end;
   }
   .riga-pulsanti-scheda button { margin-right: 0; padding: 7px 12px; font-size: 0.85rem; }
 
@@ -362,7 +373,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 14</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 15</div>
 
 <div id="messaggio-globale"></div>
 
@@ -1168,30 +1179,36 @@ function mostraElenco(elenco) {
       avvisoLocandinaMancanteHtml(test);
     scheda.appendChild(intestazione);
 
-    const rigaInfo = document.createElement("div");
-    rigaInfo.className = "riga-info-testuale";
-    rigaInfo.innerHTML =
-      '<strong>PIN</strong> ' + escapeHtml(test.pin) + ' &nbsp;·&nbsp; ' +
-      '<strong>Durata</strong> ' + celleDurata(test) + ' &nbsp;·&nbsp; ' +
-      '<strong>Domande</strong> ' + test.numDomande + ' &nbsp;·&nbsp; ' +
-      '<strong>Allievi</strong> ' + test.numStudenti + ' &nbsp;·&nbsp; ' +
-      '<strong>Soglia</strong> ' + (test.sogliaPercentuale !== null ? test.sogliaPercentuale + '%' : 'nessuna') + ' &nbsp;·&nbsp; ' +
-      '<strong>Sessioni fatte</strong> ' + test.azzeramenti + ' &nbsp;·&nbsp; ' +
-      '<strong>Ultimo aggiornamento</strong> ' + escapeHtml(calcolaOrarioUltimaModifica(test));
-    scheda.appendChild(rigaInfo);
+    const corpo = document.createElement("div");
+    corpo.className = "corpo-scheda-test";
+    scheda.appendChild(corpo);
 
-    const rigaNumeri = document.createElement("div");
-    rigaNumeri.className = "riga-numeri-vivi";
-    const numeroVivo = (etichetta, valore, classeExtra) => '<span class="numero-vivo' + (classeExtra ? ' ' + classeExtra : '') + '"><strong>' + valore + '</strong> ' + etichetta + '</span>';
-    rigaNumeri.innerHTML =
-      numeroVivo("assenti", test.assenti.length, test.assenti.length > 0 ? "numero-attenzione" : "") +
-      numeroVivo("connessi", test.connessi) +
-      numeroVivo("in svolgimento", test.inSvolgimento) +
-      numeroVivo("completati", test.completati, (test.completati === test.numStudenti && test.numStudenti > 0) ? "numero-ok" : "") +
-      (test.sogliaPercentuale !== null ? numeroVivo("non passati", test.nonPassati, test.nonPassati > 0 ? "numero-attenzione" : "numero-ok") : "");
-    scheda.appendChild(rigaNumeri);
+    // ---- Colonna sinistra: dati del test, uno per riga ----
+    const colonnaDati = document.createElement("div");
+    colonnaDati.className = "colonna-dati-test";
+    const rigaDato = (etichetta, valoreHtml, classeExtra) =>
+      '<div class="riga-dato"><span class="etichetta-dato">' + etichetta + '</span><span class="valore-dato' + (classeExtra ? ' ' + classeExtra : '') + '">' + valoreHtml + '</span></div>';
+    colonnaDati.innerHTML =
+      rigaDato("PIN", escapeHtml(test.pin)) +
+      rigaDato("Durata", celleDurata(test)) +
+      rigaDato("Domande", test.numDomande) +
+      rigaDato("Allievi in elenco", test.numStudenti) +
+      rigaDato("Soglia di superamento", test.sogliaPercentuale !== null ? test.sogliaPercentuale + "%" : "nessuna") +
+      rigaDato("Sessioni fatte", test.azzeramenti) +
+      rigaDato("Ultimo aggiornamento", escapeHtml(calcolaOrarioUltimaModifica(test))) +
+      rigaDato("Assenti", test.assenti.length, test.assenti.length > 0 ? "dato-attenzione" : "") +
+      rigaDato("Connessi", test.connessi) +
+      rigaDato("In svolgimento", test.inSvolgimento) +
+      rigaDato("Completati", test.completati, (test.completati === test.numStudenti && test.numStudenti > 0) ? "dato-ok" : "") +
+      (test.sogliaPercentuale !== null ? rigaDato("Non passati", test.nonPassati, test.nonPassati > 0 ? "dato-attenzione" : "dato-ok") : "");
+    corpo.appendChild(colonnaDati);
 
-    // ---- Gruppo 1: gestione della sessione in aula ----
+    // ---- Colonna destra: pulsanti, raggruppati per categoria ----
+    const colonnaPulsanti = document.createElement("div");
+    colonnaPulsanti.className = "colonna-pulsanti-test";
+    corpo.appendChild(colonnaPulsanti);
+
+    // Gruppo 1: gestione della sessione in aula
     const gruppoSessione = document.createElement("div");
     gruppoSessione.className = "gruppo-pulsanti-test";
     gruppoSessione.innerHTML = '<div class="etichetta-gruppo-pulsanti">Sessione in aula</div>';
@@ -1232,9 +1249,9 @@ function mostraElenco(elenco) {
     rigaSessione.appendChild(btnTerminaManualmente);
 
     gruppoSessione.appendChild(rigaSessione);
-    scheda.appendChild(gruppoSessione);
+    colonnaPulsanti.appendChild(gruppoSessione);
 
-    // ---- Gruppo 2: gestione del test ----
+    // Gruppo 2: gestione del test
     const gruppoTest = document.createElement("div");
     gruppoTest.className = "gruppo-pulsanti-test";
     gruppoTest.innerHTML = '<div class="etichetta-gruppo-pulsanti">Gestione test</div>';
@@ -1273,7 +1290,7 @@ function mostraElenco(elenco) {
     rigaTest.appendChild(btnElimina);
 
     gruppoTest.appendChild(rigaTest);
-    scheda.appendChild(gruppoTest);
+    colonnaPulsanti.appendChild(gruppoTest);
 
     contenitore.appendChild(scheda);
   });
