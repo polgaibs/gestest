@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 25</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 27</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -1015,7 +1015,9 @@ function aggiornaStatistiche() {
         const percentuale = Math.round((completati / totaleRisposto) * 100);
         document.getElementById("barra-andamento-interna").style.width = percentuale + "%";
         document.getElementById("sottotesto-andamento").textContent =
-          inSvolgimento === 0 ? "Tutti hanno consegnato" : (inSvolgimento === 1 ? "1 persona sta ancora rispondendo" : inSvolgimento + " persone stanno ancora rispondendo");
+          partecipantiIniziatiSessione === 0
+            ? "In attesa che qualcuno di questa sessione inizi a rispondere"
+            : (inSvolgimento === 0 ? "Tutti hanno consegnato" : (inSvolgimento === 1 ? "1 persona sta ancora rispondendo" : inSvolgimento + " persone stanno ancora rispondendo"));
 
         const segnaleNeutro = document.getElementById("segnale-neutro");
         if (abbandonati > 0) {
@@ -1051,14 +1053,17 @@ function aggiornaStatistiche() {
       // qualunque modo il turno sia stato chiuso (termina manuale da
       // qualunque pagina, tempo scaduto, o la chiusura automatica qui
       // sopra), perché la locandina se ne accorge da sola leggendo lo
-      // stato, non perché sia lei ad aver chiuso il turno. Aspetto che
-      // non resti più nessuno "in svolgimento" né in sala d'attesa,
-      // cioè che chiunque fosse a metà abbia fatto in tempo a
-      // consegnare (anche forzatamente) prima di congelare i numeri:
-      // altrimenti rischierei di mostrare un riepilogo con conti
-      // ancora provvisori.
+      // stato, non perché sia lei ad aver chiuso il turno. La
+      // condizione qui sotto deve restare IDENTICA a quella che
+      // decide davvero quando il sistema azzera il turno
+      // (contaInSvolgimentoFirestore, dentro terminaEAspettaPrimaDiAzzerare,
+      // che guarda solo "in svolgimento", non la sala d'attesa):
+      // altrimenti, se qualcuno resta fermo in attesa, l'azzeramento
+      // vero scatta comunque cancellando le presenze, ma questa
+      // cattura più severa non si sbloccherebbe mai in tempo e il
+      // riepilogo non apparirebbe più.
       if (TEST_TERMINATO_ADESSO && !mostrandoRiepilogoSessione &&
-          inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0) {
+          inSvolgimento === 0 && nomiSessioneAttuale.size > 0) {
         catturaEMostraRiepilogoSessione({
           numeroSessione: NUMERO_SESSIONE_CORRENTE,
           partecipanti: nomiSessioneAttuale.size,
