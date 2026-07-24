@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 28</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 29</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -1045,7 +1045,17 @@ function aggiornaStatistiche() {
       // maggiore di zero per via delle sessioni passate, e usarlo
       // farebbe chiudere il turno all'istante, prima ancora che
       // qualcuno di questa sessione si sia anche solo collegato.
-      if (TURNO_IN_CORSO && inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0 &&
+      //
+      // Protezione in più: nei primi 15 secondi dopo l'avvio non
+      // considero nemmeno la chiusura automatica. Serve a coprire
+      // qualunque residuo di dati vecchi non puliti (per esempio
+      // presenze rimaste da una prova interrotta senza passare da
+      // "Termina manualmente" o "Reset presenze bot"), che altrimenti
+      // potrebbero far scattare la chiusura nei primissimi istanti,
+      // prima ancora che chi si sta connettendo adesso abbia fatto in
+      // tempo a comparire.
+      const msDaAvvio = datiTimerCorrente.avviatoTimestamp ? (Date.now() - Number(datiTimerCorrente.avviatoTimestamp)) : 0;
+      if (TURNO_IN_CORSO && msDaAvvio > 15000 && inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0 &&
           (nomiCompletatiSessioneAttuale.size + abbandonati) > 0 && !resetAutomaticoProgrammato) {
         resetAutomaticoProgrammato = true;
         const idTestAlMomento = ID_TEST_ATTIVO;
