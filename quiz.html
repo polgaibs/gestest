@@ -237,7 +237,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 18</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 19</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile, sto ritentando in automatico...
@@ -477,6 +477,7 @@ function idSessioneDispositivo() {
 // ============================================================
 let PIN_CORRETTO = "";
 let ASSENTI_ATTUALI = new Set();
+let NUMERO_SESSIONE = 1;
 let TEST_HA_PERID = false;
 let DOMANDE = [];
 let STUDENTI = [];
@@ -680,6 +681,10 @@ async function caricaTestAttivo() {
     STUDENTI = dati.studenti || [];
     DURATA_MINUTI = dati.durataMinuti || 0;
     ASSENTI_ATTUALI = new Set((dati.assenti || []).map(n => normalizza(n)));
+    // Il numero di sessione è quante volte il turno è già stato
+    // azzerato prima di questo, più uno: la prima sessione in
+    // assoluto ha azzeramenti=0, quindi è la sessione 1.
+    NUMERO_SESSIONE = (dati.azzeramenti || 0) + 1;
     document.getElementById("titolo-nome-test").textContent = dati.nome || "Test di valutazione";
 
     TEST_HA_PERID = STUDENTI.length > 0 && STUDENTI.every(n => /\(\d+\)\s*$/.test(n));
@@ -1522,7 +1527,8 @@ function inviaTest(perScadenzaTempo, motivo) {
     risposte: risposte,
     annullato: false,
     usciteFocus: uscite,
-    tempoFuoriFocusMs: msFuoriFocusTotali
+    tempoFuoriFocusMs: msFuoriFocusTotali,
+    numeroSessione: NUMERO_SESSIONE
   };
 
   provaInvio(payloadBase, 0, motivo);

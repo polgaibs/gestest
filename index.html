@@ -379,7 +379,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 22</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V2 REV. 23</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -404,6 +404,34 @@
       <div id="blocco-nessun-test" class="messaggio-nessun-test nascosto">
         <p>Al momento non risulta nessun test attivo.</p>
         <p class="istruzione-secondaria">Il test deve essere abilitato a cura dell'ufficio Studi.</p>
+      </div>
+
+      <div id="blocco-riepilogo-sessione" class="nascosto" style="max-width:640px; margin:0 auto; text-align:center;">
+        <h2 style="color:var(--oro); font-size:clamp(1.5rem, 3.4vw, 2.4rem); margin-bottom:0.6vh;">Sessione nr. <span id="riepilogo-numero-sessione">1</span> conclusa</h2>
+        <p class="istruzione-secondaria" style="margin-bottom:2vh;">Questo riepilogo non viene salvato: sparisce ricaricando la pagina o aprendo di nuovo il browser.</p>
+        <div class="contatori">
+          <div class="contatore">
+            <div class="icona">🙋</div>
+            <span class="numero" id="riepilogo-partecipanti">0</span>
+            <div class="etichetta">Partecipanti sessione</div>
+          </div>
+          <div class="contatore">
+            <div class="icona">✅</div>
+            <span class="numero" id="riepilogo-completati">0</span>
+            <div class="etichetta">Completati sessione</div>
+          </div>
+          <div class="contatore">
+            <div class="icona">🚪</div>
+            <span class="numero" id="riepilogo-abbandoni">0</span>
+            <div class="etichetta">Abbandoni sessione</div>
+          </div>
+          <div class="contatore">
+            <div class="icona">⏳</div>
+            <span class="numero" id="riepilogo-mancanti">0</span>
+            <div class="etichetta">Mancanti in generale</div>
+          </div>
+        </div>
+        <button class="btn-avvia-sincronizzato" id="btn-nuova-sessione" style="max-width:340px; margin:3vh auto 0;">Nuova sessione</button>
       </div>
 
       <div id="blocco-test-attivo" class="nascosto">
@@ -569,6 +597,14 @@ let TEST_HA_TIMER = false;
 // sia a decidere quando è lecito chiudere da soli il turno perché i
 // conti tornano.
 let TURNO_IN_CORSO = false;
+let TEST_TERMINATO_ADESSO = false;
+let NUMERO_SESSIONE_CORRENTE = 1;
+// Una volta mostrata la schermata di riepilogo a fine sessione, la
+// pagina smette apposta di aggiornarsi: è una fotografia congelata,
+// non salvata da nessuna parte, che sparisce solo con un
+// ricaricamento manuale (il pulsante "Nuova sessione" non fa altro
+// che quello).
+let mostrandoRiepilogoSessione = false;
 let NUMERO_STUDENTI_TOTALE = 0;
 let ASSENTI_ATTUALI = new Set();
 let pollingStatistiche = null;
@@ -756,6 +792,7 @@ function mostraNessunTestAttivo() {
 // diretta quando qualcuno preme avvio/pausa/termina sullo stesso
 // test già in corso.
 function aggiornaStatoDaFirestore() {
+  if (mostrandoRiepilogoSessione) return;
   getDoc(riferimentoStatoAttivo()).then(istantaneaPuntatore => {
     mostraBannerConnessione(false);
     const idAttivo = istantaneaPuntatore.exists() ? istantaneaPuntatore.data().idTest : null;
@@ -852,6 +889,8 @@ function gestisciStatoTestLocandina(dati) {
 
   const testInCorsoAdesso = !!(dati.avviatoTimestamp && !dati.terminatoTimestamp);
   TURNO_IN_CORSO = testInCorsoAdesso && !dati.pausaTimestamp;
+  TEST_TERMINATO_ADESSO = !!dati.terminatoTimestamp;
+  NUMERO_SESSIONE_CORRENTE = (dati.azzeramenti || 0) + 1;
   if (testInCorsoAdesso) {
     document.getElementById("blocco-qr-accesso").classList.add("nascosto");
     document.getElementById("avviso-test-in-corso").classList.remove("nascosto");
@@ -1000,9 +1039,61 @@ function aggiornaStatistiche() {
           resetAutomaticoProgrammato = false;
         });
       }
+
+      // Cattura del riepilogo di fine sessione: si applica a
+      // qualunque modo il turno sia stato chiuso (termina manuale da
+      // qualunque pagina, tempo scaduto, o la chiusura automatica qui
+      // sopra), perché la locandina se ne accorge da sola leggendo lo
+      // stato, non perché sia lei ad aver chiuso il turno. Aspetto che
+      // non resti più nessuno "in svolgimento" né in sala d'attesa,
+      // cioè che chiunque fosse a metà abbia fatto in tempo a
+      // consegnare (anche forzatamente) prima di congelare i numeri:
+      // altrimenti rischierei di mostrare un riepilogo con conti
+      // ancora provvisori.
+      if (TEST_TERMINATO_ADESSO && !mostrandoRiepilogoSessione &&
+          inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0) {
+        catturaEMostraRiepilogoSessione({
+          numeroSessione: NUMERO_SESSIONE_CORRENTE,
+          partecipanti: nomiSessioneAttuale.size,
+          completati: nomiCompletatiSessioneAttuale.size,
+          abbandoni: abbandonati,
+          mancantiGenerali: mancanti
+        });
+        return;
+      }
     })
     .catch(() => {});
 }
+
+// Congela la pagina sulla schermata di riepilogo: niente viene
+// salvato da nessuna parte, è solo quello che questa scheda del
+// browser mostra finché non la ricarichi (il pulsante "Nuova
+// sessione" fa esattamente quello).
+function catturaEMostraRiepilogoSessione(riepilogo) {
+  mostrandoRiepilogoSessione = true;
+  if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
+  fermaCountdownLanding();
+  fermaBattitoLocandina();
+
+  document.getElementById("blocco-caricamento").classList.add("nascosto");
+  document.getElementById("blocco-nessun-test").classList.add("nascosto");
+  document.getElementById("blocco-test-attivo").classList.add("nascosto");
+  document.getElementById("pannello-controllo").classList.remove("visibile");
+  document.getElementById("titolo-test-contenitore").classList.add("nascosto");
+  document.getElementById("corpo").classList.add("a-colonna-singola");
+
+  document.getElementById("riepilogo-numero-sessione").textContent = riepilogo.numeroSessione;
+  document.getElementById("riepilogo-partecipanti").textContent = riepilogo.partecipanti;
+  document.getElementById("riepilogo-completati").textContent = riepilogo.completati;
+  document.getElementById("riepilogo-abbandoni").textContent = riepilogo.abbandoni;
+  document.getElementById("riepilogo-mancanti").textContent = riepilogo.mancantiGenerali;
+
+  document.getElementById("blocco-riepilogo-sessione").classList.remove("nascosto");
+}
+
+document.getElementById("btn-nuova-sessione").addEventListener("click", () => {
+  location.reload();
+});
 
 // ============================================================
 // AVVIA IL TEST PER TUTTI

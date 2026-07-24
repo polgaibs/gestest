@@ -310,7 +310,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 10</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 11</div>
 
 <div id="messaggio-globale"></div>
 
@@ -407,6 +407,9 @@
         Nessun limite di tempo (disattiva il timer)
       </label>
     </div>
+
+    <label for="campo-soglia-superamento">Soglia di superamento (% di risposte corrette, facoltativa)</label>
+    <input type="text" id="campo-soglia-superamento" placeholder="Es. 60, lascia vuoto per non distinguere chi passa" inputmode="numeric">
 
     <label>File Excel domande (colonne: NR, DOMANDA, RISPOSTA A ESATTA, RISPOSTA B, RISPOSTA C)</label>
     <div class="riga-file">
@@ -577,10 +580,11 @@ function nuovoIdTest() {
   return "T" + Math.random().toString(36).substring(2, 10);
 }
 
-async function creaTest(nome, pin, durataMinuti, domande, studenti) {
+async function creaTest(nome, pin, durataMinuti, domande, studenti, sogliaPercentuale) {
   const id = nuovoIdTest();
   await setDoc(riferimentoTest(id), {
     nome, pin, durataMinuti, domande, studenti,
+    sogliaPercentuale: sogliaPercentuale ?? null,
     attivo: false,
     dataCreazione: new Date().toLocaleString("it-IT"),
     azzeramenti: 0,
@@ -590,8 +594,8 @@ async function creaTest(nome, pin, durataMinuti, domande, studenti) {
   return id;
 }
 
-async function aggiornaTest(id, nome, pin, durataMinuti, domande, studenti) {
-  const dati = { nome, pin, durataMinuti };
+async function aggiornaTest(id, nome, pin, durataMinuti, domande, studenti, sogliaPercentuale) {
+  const dati = { nome, pin, durataMinuti, sogliaPercentuale: sogliaPercentuale ?? null };
   if (domande) dati.domande = domande;
   if (studenti) dati.studenti = studenti;
   await updateDoc(riferimentoTest(id), dati);
@@ -677,6 +681,7 @@ async function getDettaglioTest(id) {
     nome: dati.nome || "",
     pin: dati.pin || "",
     durataMinuti: (dati.durataMinuti === undefined || dati.durataMinuti === null) ? 20 : Number(dati.durataMinuti),
+    sogliaPercentuale: (dati.sogliaPercentuale === undefined || dati.sogliaPercentuale === null) ? null : Number(dati.sogliaPercentuale),
     domande: dati.domande || [],
     studenti: dati.studenti || []
   };
@@ -685,7 +690,7 @@ async function getDettaglioTest(id) {
 async function duplicaTest(id) {
   const originale = await getDettaglioTest(id);
   if (!originale) return null;
-  return creaTest(originale.nome + " (copia)", originale.pin, originale.durataMinuti, originale.domande, originale.studenti);
+  return creaTest(originale.nome + " (copia)", originale.pin, originale.durataMinuti, originale.domande, originale.studenti, originale.sogliaPercentuale);
 }
 
 // Elenco di chi ha già completato il test, con data e numero di
@@ -709,7 +714,9 @@ async function elencoCompletati(idTest) {
     elenco.push({
       nome: voce.nome,
       dataOra: nonAnnullato.timestamp || "",
-      numeroTentativi: voce.tentativi.length
+      numeroTentativi: voce.tentativi.length,
+      punteggio: typeof nonAnnullato.punteggio === "number" ? nonAnnullato.punteggio : null,
+      totaleDomande: typeof nonAnnullato.totaleDomande === "number" ? nonAnnullato.totaleDomande : null
     });
   });
   elenco.sort((a, b) => a.nome.localeCompare(b.nome, "it"));
@@ -825,7 +832,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
   const cartella = new ExcelJS.Workbook();
   const foglio = cartella.addWorksheet("Risultati");
 
-  const intestazione = ["Data invio", "Cognome e Nome", "Punteggio", "Su totale domande", "Scaduto per tempo", "Uscite dal focus", "Tempo fuori focus"];
+  const intestazione = ["Data invio", "Cognome e Nome", "Sessione", "Punteggio", "Su totale domande", "Scaduto per tempo", "Uscite dal focus", "Tempo fuori focus"];
   for (let i = 0; i < numeroMassimoDomande; i++) {
     intestazione.push(righe.find(r => r.risposte && r.risposte[i]) ?.risposte[i].testo || ("Domanda " + (i + 1)));
   }
@@ -836,7 +843,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
   righe.forEach(r => {
     const usciteFocus = r.usciteFocus || 0;
     const rigaValori = [
-      r.timestamp || "", r.nome || "", r.punteggio, r.totaleDomande, r.scadutoPerTempo || "NO",
+      r.timestamp || "", r.nome || "", r.numeroSessione || "", r.punteggio, r.totaleDomande, r.scadutoPerTempo || "NO",
       usciteFocus, formattaDurataFuoriFocus(r.tempoFuoriFocusMs || 0)
     ];
     (r.risposte || []).forEach(risposta => {
@@ -845,11 +852,11 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
     });
     const rigaAggiunta = foglio.addRow(rigaValori);
     if (usciteFocus > 0) {
-      rigaAggiunta.getCell(6).font = { bold: true, color: { argb: "FFB00020" } };
       rigaAggiunta.getCell(7).font = { bold: true, color: { argb: "FFB00020" } };
+      rigaAggiunta.getCell(8).font = { bold: true, color: { argb: "FFB00020" } };
     }
     (r.risposte || []).forEach((risposta, indice) => {
-      const cella = rigaAggiunta.getCell(8 + indice);
+      const cella = rigaAggiunta.getCell(9 + indice);
       cella.fill = {
         type: "pattern", pattern: "solid",
         fgColor: { argb: risposta.corretta === "SI" ? COLORE_CORRETTA : COLORE_SBAGLIATA }
@@ -1269,17 +1276,38 @@ function avviaPannelloNuovoTentativo(id, nomeTest) {
   document.getElementById("scheda-nuovo-tentativo").classList.remove("nascosto");
   document.getElementById("scheda-nuovo-tentativo").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  elencoCompletati(id).then(allievi => {
+  Promise.all([elencoCompletati(id), getDoc(riferimentoTest(id))]).then(([allievi, istantaneaTest]) => {
     if (allievi.length === 0) { lista.innerHTML = "Nessun allievo ha ancora completato questo test."; return; }
+
+    const dati = istantaneaTest.exists() ? istantaneaTest.data() : {};
+    const soglia = (dati.sogliaPercentuale === undefined || dati.sogliaPercentuale === null) ? null : Number(dati.sogliaPercentuale);
+
+    // Chi non ha superato la soglia va in cima, evidenziato: sono
+    // quelli su cui probabilmente vuoi decidere subito se concedere
+    // un nuovo tentativo. Se il test non ha una soglia impostata,
+    // resta tutto in ordine alfabetico come prima, nessuna distinzione.
+    allievi.forEach(a => {
+      a.percentuale = (a.punteggio !== null && a.totaleDomande) ? (a.punteggio / a.totaleDomande) * 100 : null;
+      a.nonSuperato = soglia !== null && a.percentuale !== null && a.percentuale < soglia;
+    });
+    if (soglia !== null) {
+      allievi.sort((a, b) => {
+        if (a.nonSuperato !== b.nonSuperato) return a.nonSuperato ? -1 : 1;
+        return a.nome.localeCompare(b.nome, "it");
+      });
+    }
+
     lista.innerHTML = "";
     allievi.forEach(a => {
       const riga = document.createElement("label");
-      riga.style.cssText = "display:flex; align-items:center; gap:10px; padding:8px 4px; font-weight:400; margin:0; border-bottom:1px solid #eee;";
+      riga.style.cssText = "display:flex; align-items:center; gap:10px; padding:8px 4px; font-weight:400; margin:0; border-bottom:1px solid #eee;" +
+        (a.nonSuperato ? " background:#f8d7da; border-radius:6px;" : "");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox"; checkbox.value = a.nome; checkbox.className = "checkbox-allievo-tentativo"; checkbox.style.width = "auto";
       const testo = document.createElement("span");
       const etichettaTentativi = a.numeroTentativi === 1 ? "1 tentativo" : (a.numeroTentativi + " tentativi");
-      testo.innerHTML = '<strong>' + escapeHtml(a.nome) + '</strong><br><span style="color:#888; font-size:0.85rem;">svolto il ' + escapeHtml(a.dataOra) + ', ' + etichettaTentativi + '</span>';
+      const etichettaPunteggio = a.percentuale !== null ? (" — " + a.punteggio + "/" + a.totaleDomande + " (" + Math.round(a.percentuale) + "%)" + (a.nonSuperato ? " ❌ non superato" : "")) : "";
+      testo.innerHTML = '<strong>' + escapeHtml(a.nome) + '</strong><br><span style="color:#888; font-size:0.85rem;">svolto il ' + escapeHtml(a.dataOra) + ', ' + etichettaTentativi + escapeHtml(etichettaPunteggio) + '</span>';
       riga.appendChild(checkbox); riga.appendChild(testo);
       lista.appendChild(riga);
     });
@@ -1470,6 +1498,7 @@ function avviaModifica(id) {
       document.getElementById("campo-durata-test").disabled = true;
       document.getElementById("campo-durata-test").value = "";
     }
+    document.getElementById("campo-soglia-superamento").value = test.sogliaPercentuale === null ? "" : test.sogliaPercentuale;
     domandeCaricate = test.domande;
     studentiCaricati = test.studenti;
     allieviManuale = test.studenti.map(stimaCognomeNomeDaStringa);
@@ -1503,6 +1532,7 @@ function resetForm() {
   document.getElementById("campo-durata-test").value = "20";
   document.getElementById("campo-durata-test").disabled = false;
   document.getElementById("campo-nessun-timer").checked = false;
+  document.getElementById("campo-soglia-superamento").value = "";
   document.getElementById("file-domande").value = "";
   document.getElementById("file-studenti").value = "";
   document.getElementById("esito-domande").innerHTML = "";
@@ -1724,6 +1754,16 @@ document.getElementById("btn-salva").addEventListener("click", function() {
   if (!nome) { mostraMessaggio("Inserisci un nome per il test.", "errore"); return; }
   if (!pin) { mostraMessaggio("Inserisci un PIN.", "errore"); return; }
 
+  const testoSoglia = document.getElementById("campo-soglia-superamento").value.trim();
+  let sogliaPercentuale = null;
+  if (testoSoglia) {
+    sogliaPercentuale = parseInt(testoSoglia, 10);
+    if (!Number.isFinite(sogliaPercentuale) || sogliaPercentuale < 1 || sogliaPercentuale > 100) {
+      mostraMessaggio("La soglia di superamento deve essere un numero tra 1 e 100, oppure lascia il campo vuoto.", "errore");
+      return;
+    }
+  }
+
   if (domandeCaricate) domandeCaricate = domandeCaricate.filter(d => d.testo && d.testo.trim());
   if (studentiCaricati) studentiCaricati = studentiCaricati.filter(s => s && s.trim());
 
@@ -1739,8 +1779,8 @@ document.getElementById("btn-salva").addEventListener("click", function() {
   const fine = () => { bottone.disabled = false; bottone.textContent = "Salva test"; };
 
   const promessa = idInModifica
-    ? aggiornaTest(idInModifica, nome, pin, durataMinuti, domandeCaricate, studentiCaricati)
-    : creaTest(nome, pin, durataMinuti, domandeCaricate, studentiCaricati);
+    ? aggiornaTest(idInModifica, nome, pin, durataMinuti, domandeCaricate, studentiCaricati, sogliaPercentuale)
+    : creaTest(nome, pin, durataMinuti, domandeCaricate, studentiCaricati, sogliaPercentuale);
 
   promessa.then(() => {
     fine();
