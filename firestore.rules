@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========================================================
+    // REGOLE GESTEST — PROGETTO NUOVO (con Cloud Functions)
+    //
+    // Differenza principale rispetto al sistema precedente: il
+    // browser non legge più mai direttamente PIN, domande (con le
+    // risposte corrette) o l'elenco completo degli allievi. Quei
+    // dati vivono in "test/{id}/privato/dati", leggibile solo da un
+    // admin autenticato o dalle Cloud Functions (che usano l'SDK
+    // admin e non sono soggette a queste regole). Il quiz parla con
+    // quei dati solo attraverso le funzioni "cercaAllievi",
+    // "iniziaTest" e "inviaRisultato".
+    // ========================================================
+
+    function autenticato() {
+      return request.auth != null;
+    }
+    function emailAdmin() {
+      return autenticato()
+        && exists(/databases/$(database)/documents/admin/$(request.auth.token.email));
+    }
+
+    match /admin/{email} {
+      allow get: if autenticato() && request.auth.token.email == email;
+      allow list, create, update, delete: if false;
+    }
+
+    // Puntatore al test attivo: pubblico, non rivela nulla di
+    // sensibile, solo un ID.
+    match /stato/{documento} {
+      allow read: if true;
+      allow write: if emailAdmin();
+    }
+
+    match /test/{idTest} {
+
+      // Documento PUBBLICO: solo i campi che le pagine senza login
+      // (locandina, live se la useremo così, quiz per lo stato del
+      // turno) hanno bisogno di leggere. Niente PIN, niente domande,
+      // niente elenco allievi qui dentro: quelli stanno nel
+      // documento privato qui sotto.
+      allow get: if true;
+      allow list: if emailAdmin();
+
+      allow create: if emailAdmin();
+
+      // Il pubblico può ancora toccare i soli campi di stato del
+      // turno (avvio, pausa, chiusura, azzeramento): sono scritti
+      // dalla locandina, che non ha login, esattamente come nel
+      // sistema precedente.
+      allow update: if emailAdmin()
+        || (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'avviatoTimestamp', 'pausaTimestamp', 'terminatoTimestamp',
+              'totalePausaMs', 'secondiRimastiAllaPausa', 'azzeramenti',
+              'locandinaUltimoAggiornamento'
+            ])
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['azzeramenti'])
+            || request.resource.data.azzeramenti == resource.data.get('azzeramenti', 0) + 1
+          )
+        );
+
+      allow delete: if emailAdmin();
+
+      // ----------------------------------------------------
+      // Documento PRIVATO: PIN, domande con risposta corretta,
+      // elenco allievi completo, elenco assenti completo. MAI
+      // leggibile dal pubblico, nemmeno di striscio: solo un admin
+      // autenticato dalla console, oppure le Cloud Functions
+      // tramite l'SDK admin (che ignora queste regole).
+      // ----------------------------------------------------
+      match /privato/{documento} {
+        allow read, write: if emailAdmin();
+      }
+
+      // ----------------------------------------------------
+      // Presenze: chi ha la pagina del quiz aperta in questo
+      // momento. Restano pubbliche in lettura/scrittura come nel
+      // sistema precedente: non contengono PIN, domande o l'elenco
+      // completo, solo il nome di chi si è già identificato con
+      // successo attraverso "iniziaTest".
+      // ----------------------------------------------------
+      match /presenze/{nomePresenza} {
+        allow read: if true;
+        allow create, update: if request.resource.data.keys().hasOnly([
+          'nome', 'stato', 'ultimoAggiornamento', 'sessione'
+        ]);
+        allow delete: if true;
+      }
+
+      // Riepiloghi di sessione, scritti dalla locandina a fine
+      // turno: nessun dato sensibile qui dentro, solo numeri.
+      match /sessioni/{numeroSessione} {
+        allow read: if true;
+        allow create: if request.resource.data.keys().hasOnly([
+          'numeroSessione', 'partecipanti', 'completati', 'abbandoni',
+          'mancantiGenerali', 'timestamp'
+        ]);
+        allow update, delete: if emailAdmin();
+      }
+
+      // ----------------------------------------------------
+      // Risultati: qui la novità più importante. Il pubblico non
+      // può più leggerli né scriverli direttamente: ci pensa solo
+      // la funzione "inviaRisultato", tramite l'SDK admin. Questo
+      // chiude anche un problema del sistema precedente, dove
+      // chiunque poteva leggere punteggi e risposte di tutti
+      // interrogando direttamente il database.
+      // ----------------------------------------------------
+      match /risultati/{chiaveRisultato} {
+        allow read, write: if emailAdmin();
+      }
+    }
+
+    match /log/{idLog} {
+      allow create: if request.resource.data.keys().hasOnly([
+        'tipo', 'categoria', 'messaggio', 'idTest', 'nome',
+        'tentativo', 'timestamp'
+      ]);
+      allow read, delete: if emailAdmin();
+      allow update: if false;
+    }
+  }
+}
