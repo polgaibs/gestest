@@ -24,11 +24,12 @@
 // ============================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { setGlobalOptions } = require("firebase-functions/v2");
+const { setGlobalOptions } = require("firebase-functions/v2/options");
 const admin = require("firebase-admin");
+const { getFirestore } = require("firebase-admin/firestore");
 
 admin.initializeApp();
-const db = admin.firestore();
+const db = getFirestore();
 
 // Regione più vicina all'Italia, e un limite di istanze basso: i
 // volumi di questo sistema sono poche centinaia di chiamate a
