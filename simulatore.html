@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     SIMULATORE DI CARICO — GesTest (VERSIONE 3, con backend)
+     Strumento SOLO PER TEST, non collegarlo da index/live agli
+     allievi (resta comunque linkato da admin.html, che è protetto).
+
+     Differenza principale rispetto alla versione precedente: qui
+     l'elenco allievi, il PIN e le domande con le risposte corrette
+     stanno nel documento privato del test, leggibile solo da un
+     admin autenticato. Per questo motivo l'intero simulatore ora
+     richiede login Google da amministratore autorizzato fin
+     dall'inizio (prima serviva solo per due pulsanti riservati).
+     Il simulatore stesso, essendo autenticato, legge l'elenco
+     allievi e le domande direttamente da Firestore per scegliere i
+     nomi dei bot e decidere le risposte "giuste" da simulare; ma
+     l'INVIO del risultato di ogni bot passa dalla stessa Cloud
+     Function "inviaRisultato" che userebbe un allievo vero, non
+     scrive più il risultato direttamente: così il collaudo di
+     carico testa per davvero anche quella funzione, non solo
+     Firestore.
+
+     NOMI USATI: il simulatore assegna ai bot i nomi VERI presi
+     dall'elenco allievi del test attivo (uno per bot, mai ripetuti).
+     Questo significa che, sul test usato per il collaudo, quegli
+     allievi risultano "già completato" per davvero. Va bene per un
+     test dedicato al collaudo: dopo, duplica il test dal pannello
+     admin per ripartire pulito con lo stesso elenco e le stesse
+     domande, senza risultati né presenze residue.
+     ============================================================ -->
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GesTest — Simulatore di carico</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+  :root {
+    --sfondo: #0b1220;
+    --pannello: #131c2e;
+    --bordo: #223049;
+    --testo: #e6edf5;
+    --testo-fioco: #8a97ab;
+    --blu: #4f8ef7;
+    --verde: #2ecc9a;
+    --oro: #d9a441;
+    --rosso: #e65566;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--sfondo);
+    color: var(--testo);
+    padding: 20px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  h1 { font-size: 1.25rem; margin: 0; }
+  .badge-pericolo {
+    background: rgba(230,85,102,0.15);
+    color: var(--rosso);
+    border: 1px solid var(--rosso);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .riga-info {
+    color: var(--testo-fioco);
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+  }
+  .avviso {
+    background: rgba(217,164,65,0.1);
+    border: 1px solid var(--oro);
+    color: var(--oro);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin: 14px 0;
+    line-height: 1.5;
+  }
+  .pannello-test {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .pannello-test strong { color: var(--verde); }
+  button {
+    background: var(--blu);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { background: #3a445a; cursor: not-allowed; }
+  button.secondario { background: #263351; }
+  button.pericolo { background: var(--rosso); }
+  button.oro { background: var(--oro); color: #1d1d1d; font-weight: 700; }
+  button.login { background: white; color: #1d1d1d; }
+  input[type="text"], input[type="number"] {
+    background: #0e1626;
+    border: 1px solid var(--bordo);
+    color: var(--testo);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    width: 90px;
+  }
+  label.campo { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--testo-fioco); }
+
+  .griglia-statistiche {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .statistica {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .statistica .etichetta {
+    font-size: 0.72rem;
+    color: var(--testo-fioco);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .statistica .valore {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 4px 0 2px;
+  }
+  .statistica .nota { font-size: 0.72rem; color: var(--testo-fioco); }
+  .colore-verde { color: var(--verde); }
+  .colore-oro { color: var(--oro); }
+  .colore-rosso { color: var(--rosso); }
+  .colore-blu { color: var(--blu); }
+
+  .barra-progresso-cont {
+    background: #0e1626;
+    border: 1px solid var(--bordo);
+    border-radius: 6px;
+    height: 8px;
+    overflow: hidden;
+    margin: 6px 0 16px;
+  }
+  .barra-progresso-int {
+    height: 100%;
+    background: var(--blu);
+    width: 0%;
+    transition: width 0.2s;
+  }
+
+  .riga-controlli {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .corpo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .corpo { grid-template-columns: 1fr; }
+  }
+  .riquadro {
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .riquadro h2 {
+    font-size: 0.95rem;
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lista-nomi {
+    max-height: 340px;
+    overflow-y: auto;
+    font-size: 0.82rem;
+  }
+  .lista-nomi .voce {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--bordo);
+  }
+  .lista-nomi .voce:last-child { border-bottom: none; }
+  .lista-vuota { color: var(--testo-fioco); font-size: 0.85rem; padding: 10px 0; }
+  #log {
+    background: #05090f;
+    border: 1px solid var(--bordo);
+    border-radius: 8px;
+    padding: 10px 12px;
+    height: 340px;
+    overflow-y: auto;
+    font-family: "Consolas", monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+  }
+  #log .riga-log-errore { color: var(--rosso); }
+  #log .riga-log-ok { color: var(--verde); }
+  .stato-login {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--testo-fioco);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #schermata-login {
+    max-width: 420px;
+    margin: 12vh auto 0;
+    text-align: center;
+    background: var(--pannello);
+    border: 1px solid var(--bordo);
+    border-radius: 10px;
+    padding: 32px 28px;
+  }
+  #schermata-login p { color: var(--testo-fioco); line-height: 1.5; }
+  .riquadro-non-autorizzato {
+    background: rgba(230,85,102,0.1); color: var(--rosso); padding: 12px 14px;
+    border-radius: 6px; margin-top: 16px; font-size: 0.9rem;
+  }
+  .nascosto { display: none !important; }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">V3 REV. 1</div>
+
+<div id="schermata-login" class="nascosto">
+  <h1 style="margin-top:0;">⚡ Simulatore di carico</h1>
+  <p>Richiede login Google da amministratore, perché ora legge l'elenco allievi e le domande direttamente (dati riservati, non più pubblici).</p>
+  <button class="login" id="btn-login-google">Accedi con Google</button>
+  <div id="riquadro-non-autorizzato" class="riquadro-non-autorizzato nascosto"></div>
+</div>
+
+<div id="contenuto-principale" class="nascosto">
+
+<header>
+  <h1>⚡ GesTest — Simulatore di carico</h1>
+  <span class="badge-pericolo">SOLO PER TEST</span>
+  <span class="stato-login" id="stato-login">
+    <span id="testo-utente-loggato"></span>
+    <button class="secondario" id="btn-logout" style="padding:4px 10px; font-size:0.75rem;">Esci</button>
+  </span>
+</header>
+<p class="riga-info">Progetto Firebase: gestest-v2-fb16b — i bot inviano i risultati tramite la Cloud Function "inviaRisultato", come farebbe un allievo vero.</p>
+
+<div class="pannello-test" id="pannello-test">Verifica del test attivo in corso...</div>
+
+<div class="riga-controlli">
+  <label class="campo">Bot
+    <input type="number" id="campo-bot" value="150" min="1" max="500">
+  </label>
+  <label class="campo">Ramp ms (attesa tra un bot e l'altro)
+    <input type="number" id="campo-ramp" value="80" min="0" max="5000">
+  </label>
+  <label class="campo">Tempo risposta min (s)
+    <input type="number" id="campo-tempo-risposta-min" value="20" min="0" max="600">
+  </label>
+  <label class="campo">Tempo risposta max (s)
+    <input type="number" id="campo-tempo-risposta" value="90" min="1" max="600">
+  </label>
+  <label class="campo">Abbandoni simulati (%)
+    <input type="number" id="campo-abbandoni" value="5" min="0" max="100">
+  </label>
+  <label class="campo">Uscite fuori focus simulate (%)
+    <input type="number" id="campo-uscite-focus" value="15" min="0" max="100">
+  </label>
+  <button id="btn-avvia">▶ Avvia simulazione</button>
+  <button class="secondario" id="btn-ferma" disabled>■ Ferma e pulisci</button>
+  <button class="secondario" id="btn-reset-presenze">↺ Reset presenze bot</button>
+  <button class="secondario" id="btn-scarica-report">📊 Scarica report Excel</button>
+  <button class="pericolo" id="btn-reset-risultati">🗑 Reset risultati simulazione</button>
+  <button class="pericolo" id="btn-pulisci-vuoti">🧹 Pulisci documenti vuoti</button>
+  <button class="secondario" id="btn-ricarica-test">⟳ Ricarica test attivo</button>
+</div>
+
+<div class="barra-progresso-cont"><div class="barra-progresso-int" id="barra-progresso"></div></div>
+
+<div class="griglia-statistiche">
+  <div class="statistica">
+    <div class="etichetta">Bot avviati</div>
+    <div class="valore colore-blu" id="stat-connessioni">0</div>
+    <div class="nota" id="stat-connessioni-nota">su 0 richiesti</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Connessi</div>
+    <div class="valore" id="stat-presenze">0</div>
+    <div class="nota">in attesa, in svolgimento o completato</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">In attesa</div>
+    <div class="valore colore-oro" id="stat-attesa">0</div>
+    <div class="nota">non ancora avviato</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">In svolgimento</div>
+    <div class="valore colore-blu" id="stat-svolgimento">0</div>
+    <div class="nota">sta "rispondendo"</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Consegnati</div>
+    <div class="valore colore-verde" id="stat-consegnati">0</div>
+    <div class="nota">risultato inviato</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Abbandonati</div>
+    <div class="valore colore-rosso" id="stat-abbandonati">0</div>
+    <div class="nota">usciti senza consegnare</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">Errori</div>
+    <div class="valore colore-rosso" id="stat-errori">0</div>
+    <div class="nota">invii falliti</div>
+  </div>
+  <div class="statistica">
+    <div class="etichetta">RTT medio</div>
+    <div class="valore" id="stat-rtt">— ms</div>
+    <div class="nota">tempo di risposta della funzione</div>
+  </div>
+</div>
+
+<div class="corpo">
+  <div class="riquadro">
+    <h2>👥 Stato dei bot</h2>
+    <div class="lista-nomi" id="lista-bot">
+      <p class="lista-vuota">Nessun bot avviato.</p>
+    </div>
+  </div>
+  <div class="riquadro">
+    <h2>📜 Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+</div><!-- fine #contenuto-principale -->
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot,
+  collection, getDocs, query, where, writeBatch
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-functions.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC7sd8dmrLrU5D-wkBB47zGkfdSxDU6Qcc",
+  authDomain: "gestest-v2-fb16b.firebaseapp.com",
+  projectId: "gestest-v2-fb16b",
+  storageBucket: "gestest-v2-fb16b.firebasestorage.app",
+  messagingSenderId: "599095343445",
+  appId: "1:599095343445:web:9d350823aceb9fd43197dc",
+  measurementId: "G-2VB4721H78"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+const auth = getAuth(appFirebase);
+const providerGoogle = new GoogleAuthProvider();
+// Stessa regione delle Cloud Functions pubblicate: se non
+// corrisponde, le chiamate falliscono a vuoto.
+const functions = getFunctions(appFirebase, "europe-west1");
+const funzioneInviaRisultato = httpsCallable(functions, "inviaRisultato");
+
+const MARCA_SESSIONE_SIMULATORE = "simulatore-loadtest";
+
+function normalizza(testo) { return (testo || "").toString().trim().toLowerCase(); }
+function peridDiNome(nome) {
+  const corrispondenza = (nome || "").match(/\((\d+)\)\s*$/);
+  return corrispondenza ? corrispondenza[1] : "";
+}
+
+function riferimentoTest(idTest) { return doc(db, "test", idTest); }
+function riferimentoTestPrivato(idTest) { return doc(db, "test", idTest, "privato", "dati"); }
+function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
+function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
+function riferimentoPresenza(idTest, nome) { return doc(db, "test", idTest, "presenze", normalizza(nome)); }
+function riferimentoRisultato(idTest, nome) { return doc(db, "test", idTest, "risultati", normalizza(nome)); }
+
+// ============================================================
+// LOG
+// ============================================================
+const elLog = document.getElementById("log");
+function log(messaggio, tipo) {
+  const riga = document.createElement("div");
+  if (tipo) riga.className = "riga-log-" + tipo;
+  const ora = new Date().toLocaleTimeString("it-IT");
+  riga.textContent = "[" + ora + "] " + messaggio;
+  elLog.appendChild(riga);
+  elLog.scrollTop = elLog.scrollHeight;
+}
+
+// ============================================================
+// LOGIN — obbligatorio da amministratore autorizzato: il
+// simulatore ora legge l'elenco allievi e le domande dal documento
+// privato, che le regole permettono di leggere solo così.
+// ============================================================
+document.getElementById("btn-login-google").addEventListener("click", () => {
+  signInWithPopup(auth, providerGoogle).catch(e => {
+    document.getElementById("riquadro-non-autorizzato").classList.remove("nascosto");
+    document.getElementById("riquadro-non-autorizzato").textContent = "Accesso non riuscito: " + e.message;
+  });
+});
+document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
+
+onAuthStateChanged(auth, async (utente) => {
+  if (!utente) {
+    document.getElementById("schermata-login").classList.remove("nascosto");
+    document.getElementById("contenuto-principale").classList.add("nascosto");
+    return;
+  }
+  try {
+    const istantaneaAdmin = await getDoc(doc(db, "admin", utente.email));
+    if (!istantaneaAdmin.exists()) {
+      document.getElementById("schermata-login").classList.remove("nascosto");
+      document.getElementById("contenuto-principale").classList.add("nascosto");
+      document.getElementById("riquadro-non-autorizzato").classList.remove("nascosto");
+      document.getElementById("riquadro-non-autorizzato").textContent =
+        "L'account " + utente.email + " non è autorizzato. Rivolgiti a chi gestisce il sistema.";
+      await signOut(auth);
+      return;
+    }
+  } catch (e) {
+    document.getElementById("schermata-login").classList.remove("nascosto");
+    document.getElementById("contenuto-principale").classList.add("nascosto");
+    document.getElementById("riquadro-non-autorizzato").classList.remove("nascosto");
+    document.getElementById("riquadro-non-autorizzato").textContent = "Errore nel controllo dell'accesso: " + e.message;
+    return;
+  }
+  document.getElementById("schermata-login").classList.add("nascosto");
+  document.getElementById("contenuto-principale").classList.remove("nascosto");
+  document.getElementById("testo-utente-loggato").textContent = utente.email;
+  caricaTestAttivo();
+});
+
+// ============================================================
+// TEST ATTIVO — legge sia il documento pubblico sia quello
+// privato: il simulatore, autenticato come admin, può farlo.
+// ============================================================
+let ID_TEST = "";
+let NOME_TEST = "";
+let DOMANDE = [];
+let DURATA_MINUTI = 0;
+let STUDENTI = [];
+let ASSENTI_ATTUALI = new Set();
+let NUMERO_SESSIONE = 1;
+let PIN_TEST = "";
+
+async function caricaTestAttivo() {
+  const pannello = document.getElementById("pannello-test");
+  pannello.textContent = "Verifica del test attivo in corso...";
+  try {
+    const puntatore = await getDoc(doc(db, "stato", "attivo"));
+    const idAttivo = puntatore.exists() ? puntatore.data().idTest : null;
+    if (!idAttivo) {
+      pannello.innerHTML = "⚠️ Nessun test risulta attivo in questo momento. Attivane uno dal pannello admin prima di avviare la simulazione.";
+      ID_TEST = "";
+      return;
+    }
+    const [istantaneaTest, istantaneaPrivato] = await Promise.all([
+      getDoc(riferimentoTest(idAttivo)),
+      getDoc(riferimentoTestPrivato(idAttivo))
+    ]);
+    if (!istantaneaTest.exists() || istantaneaTest.data().attivo !== true) {
+      pannello.innerHTML = "⚠️ Il puntatore indica un test che non risulta più attivo.";
+      ID_TEST = "";
+      return;
+    }
+    const dati = istantaneaTest.data();
+    const privato = istantaneaPrivato.exists() ? istantaneaPrivato.data() : { pin: "", domande: [], studenti: [], assenti: [] };
+    ID_TEST = idAttivo;
+    NOME_TEST = dati.nome || idAttivo;
+    DOMANDE = privato.domande || [];
+    DURATA_MINUTI = dati.durataMinuti || 0;
+    STUDENTI = privato.studenti || [];
+    ASSENTI_ATTUALI = new Set(privato.assenti || []);
+    PIN_TEST = privato.pin || "";
+    NUMERO_SESSIONE = (dati.azzeramenti || 0) + 1;
+    const disponibili = STUDENTI.length - ASSENTI_ATTUALI.size;
+    document.getElementById("campo-bot").max = Math.max(disponibili, 1);
+    pannello.innerHTML = 'Test attivo: <strong>' + NOME_TEST + '</strong> (' + ID_TEST + ') — ' +
+      DOMANDE.length + ' domande, ' + STUDENTI.length + ' allievi in elenco' +
+      (ASSENTI_ATTUALI.size > 0 ? ' (' + ASSENTI_ATTUALI.size + ' assenti, ' + disponibili + ' disponibili per i bot)' : '') + ', ' +
+      (DURATA_MINUTI > 0 ? DURATA_MINUTI + ' minuti' : 'nessun limite di tempo') +
+      '. I bot useranno nomi presi da questo elenco, esclusi gli assenti.';
+    log("Test attivo rilevato: " + NOME_TEST + " (" + ID_TEST + "), " + STUDENTI.length + " allievi in elenco" + (ASSENTI_ATTUALI.size > 0 ? ", " + ASSENTI_ATTUALI.size + " segnati assenti" : "") + ".");
+  } catch (e) {
+    pannello.innerHTML = "⚠️ Errore nel controllare il test attivo: " + e.message;
+    ID_TEST = "";
+  }
+}
+document.getElementById("btn-ricarica-test").addEventListener("click", caricaTestAttivo);
+
+// ============================================================
+// STATO SIMULAZIONE
+// ============================================================
+let simulazioneInCorso = false;
+let botAttivi = new Map(); // nomeBot -> { stato: 'connessione'|'attesa'|'in_corso'|'consegnato'|'abbandonato'|'errore' }
+let timerBot = []; // tutti i setTimeout in corso, per poterli cancellare con "Ferma"
+let rttCampioni = [];
+let annullaOsservatoreAvvio = null;
+let testAvviatoAdesso = false;
+let terminazioneGestita = false;
+let turnoChiuso = false;
+const pingIdsAttivi = new Map();
+let idCorsaCorrente = 0;
+let numeroBotRichiesti = 0;
+let numeroBotConnessi = 0;
+let numeroErrori = 0;
+let nomiUsatiUltimaCorsa = new Set();
+
+let tuttiRttCorsa = [];
+let orarioInizioCorsa = null;
+let orarioFineCorsa = null;
+let elencoErroriCorsa = [];
+
+function mischia(array) {
+  const copia = [...array];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+function registraRtt(ms) {
+  rttCampioni.push(ms);
+  if (rttCampioni.length > 200) rttCampioni.shift();
+  tuttiRttCorsa.push(ms);
+}
+
+function pianificaTimer(funzione, ritardoMs) {
+  const id = setTimeout(() => {
+    timerBot = timerBot.filter(t => t !== id);
+    if (!simulazioneInCorso) return;
+    funzione();
+  }, ritardoMs);
+  timerBot.push(id);
+  return id;
+}
+
+// ============================================================
+// AGGIORNAMENTO INTERFACCIA
+// ============================================================
+function aggiornaInterfaccia() {
+  const valori = Array.from(botAttivi.values());
+  const inAttesa = valori.filter(b => b.stato === "attesa").length;
+  const inSvolgimento = valori.filter(b => b.stato === "in_corso").length;
+  const consegnati = valori.filter(b => b.stato === "consegnato").length;
+  const abbandonati = valori.filter(b => b.stato === "abbandonato").length;
+
+  document.getElementById("stat-connessioni").textContent = numeroBotConnessi;
+  document.getElementById("stat-connessioni-nota").textContent = "su " + numeroBotRichiesti + " richiesti";
+  document.getElementById("stat-presenze").textContent = inAttesa + inSvolgimento + consegnati;
+  document.getElementById("stat-attesa").textContent = inAttesa;
+  document.getElementById("stat-svolgimento").textContent = inSvolgimento;
+  document.getElementById("stat-consegnati").textContent = consegnati;
+  document.getElementById("stat-abbandonati").textContent = abbandonati;
+  document.getElementById("stat-errori").textContent = numeroErrori;
+  document.getElementById("stat-rtt").textContent = rttCampioni.length
+    ? Math.round(rttCampioni.reduce((a, b) => a + b, 0) / rttCampioni.length) + " ms"
+    : "— ms";
+
+  const percentuale = numeroBotRichiesti > 0 ? Math.round((numeroBotConnessi / numeroBotRichiesti) * 100) : 0;
+  document.getElementById("barra-progresso").style.width = percentuale + "%";
+
+  const lista = document.getElementById("lista-bot");
+  if (botAttivi.size === 0) {
+    lista.innerHTML = '<p class="lista-vuota">Nessun bot avviato.</p>';
+    return;
+  }
+  const etichette = {
+    connessione: "Connessione...", attesa: "In attesa", in_corso: "In svolgimento",
+    consegnato: "Consegnato", abbandonato: "Abbandonato", errore: "Errore"
+  };
+  const coloriTesto = {
+    connessione: "colore-blu", attesa: "colore-oro", in_corso: "colore-blu",
+    consegnato: "colore-verde", abbandonato: "colore-rosso", errore: "colore-rosso"
+  };
+  const righeHtml = [];
+  botAttivi.forEach((info, nome) => {
+    righeHtml.push('<div class="voce"><span>' + nome + '</span><span class="' + (coloriTesto[info.stato] || "") + '">' + (etichette[info.stato] || info.stato) + '</span></div>');
+  });
+  lista.innerHTML = righeHtml.join("");
+}
+setInterval(aggiornaInterfaccia, 500);
+let reportSegnalatoPerQuestaCorsa = false;
+
+setInterval(() => {
+  if (!simulazioneInCorso || numeroBotRichiesti === 0 || reportSegnalatoPerQuestaCorsa) return;
+  const valori = Array.from(botAttivi.values());
+  if (valori.length < numeroBotRichiesti) return;
+  const finiti = valori.filter(b => ["consegnato", "abbandonato", "errore"].includes(b.stato)).length;
+  if (finiti === numeroBotRichiesti) {
+    reportSegnalatoPerQuestaCorsa = true;
+    orarioFineCorsa = new Date();
+    log("Tutti i bot hanno raggiunto uno stato finale: corsa conclusa, il report è pronto da scaricare.", "ok");
+    document.getElementById("btn-scarica-report").classList.add("oro");
+  }
+}, 3000);
+
+// ============================================================
+// CICLO DI VITA DI UN SINGOLO BOT
+// ============================================================
+async function eseguiBot(nomeBot, percentualeAbbandono, idCorsaAlMomento) {
+  if (!simulazioneInCorso || !ID_TEST) return;
+  botAttivi.set(nomeBot, { stato: "connessione" });
+  numeroBotConnessi++;
+
+  try {
+    await setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+      nome: nomeBot, stato: "attesa", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+    });
+  } catch (e) {
+    numeroErrori++;
+    elencoErroriCorsa.push({ nomeBot, fase: "presenza", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
+    botAttivi.set(nomeBot, { stato: "errore" });
+    log(nomeBot + ": errore scrivendo la presenza — " + e.message, "errore");
+    return;
+  }
+
+  if (!simulazioneInCorso || idCorsaAlMomento !== idCorsaCorrente) {
+    deleteDoc(riferimentoPresenza(ID_TEST, nomeBot)).catch(() => {});
+    return;
+  }
+
+  botAttivi.set(nomeBot, { stato: "attesa" });
+
+  const pingId = setInterval(() => {
+    if (!simulazioneInCorso || turnoChiuso) { clearInterval(pingId); return; }
+    const info = botAttivi.get(nomeBot);
+    if (!info || info.stato === "abbandonato" || info.stato === "errore") {
+      clearInterval(pingId);
+      return;
+    }
+    const statoFirestore = info.stato === "consegnato" ? "completato" : info.stato;
+    setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+      nome: nomeBot, stato: statoFirestore, ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+    }, { merge: true }).catch(() => {});
+  }, 25000);
+  pingIdsAttivi.set(nomeBot, pingId);
+
+  aspettaAvvioPoiRispondi(nomeBot, pingId, percentualeAbbandono);
+}
+
+const botInAttesaDiAvvio = new Map();
+function aspettaAvvioPoiRispondi(nomeBot, pingId, percentualeAbbandono) {
+  if (testAvviatoAdesso) {
+    procediConRisposta(nomeBot, pingId, percentualeAbbandono);
+  } else {
+    botInAttesaDiAvvio.set(nomeBot, percentualeAbbandono);
+  }
+}
+
+function procediConRisposta(nomeBot, pingId, percentualeAbbandono) {
+  if (!simulazioneInCorso) return;
+  const info = botAttivi.get(nomeBot);
+  if (!info || info.stato === "abbandonato" || info.stato === "errore") return;
+  botAttivi.set(nomeBot, { stato: "in_corso" });
+  setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+    nome: nomeBot, stato: "in_corso", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+  }, { merge: true }).catch(() => {});
+
+  if (Math.random() * 100 < percentualeAbbandono) {
+    const ritardoAbbandono = 3000 + Math.random() * 20000;
+    pianificaTimer(() => {
+      const infoAttuale = botAttivi.get(nomeBot);
+      if (!infoAttuale || infoAttuale.stato !== "in_corso") return;
+      botAttivi.set(nomeBot, { stato: "abbandonato" });
+      clearInterval(pingId);
+    }, ritardoAbbandono);
+    return;
+  }
+
+  const tempoMinimoMs = Number(document.getElementById("campo-tempo-risposta-min").value || 0) * 1000;
+  const tempoMassimoMsRichiesto = Number(document.getElementById("campo-tempo-risposta").value || 90) * 1000;
+  const tempoMassimoMs = Math.max(tempoMassimoMsRichiesto, tempoMinimoMs + 1000);
+  const ritardoRisposta = tempoMinimoMs + Math.random() * (tempoMassimoMs - tempoMinimoMs);
+
+  pianificaTimer(() => consegnaBot(nomeBot), ritardoRisposta);
+}
+
+// Consegna vera e propria: invece di scrivere il risultato
+// direttamente su Firestore, chiama la Cloud Function
+// "inviaRisultato", esattamente come farebbe il quiz vero. Il
+// simulatore conosce già la risposta corretta di ogni domanda
+// (l'ha letta come admin dal documento privato) solo per DECIDERE
+// cosa il bot "sa" rispondere; il punteggio vero e proprio lo
+// ricalcola comunque la funzione, lato server, non ci si fida mai
+// di un punteggio calcolato qui.
+async function consegnaBot(nomeBot, scadutoPerTempo) {
+  if (!simulazioneInCorso) return;
+  const infoAttuale = botAttivi.get(nomeBot);
+  if (!infoAttuale || infoAttuale.stato === "abbandonato" || infoAttuale.stato === "consegnato" || infoAttuale.stato === "errore") return;
+
+  const risposteScelte = DOMANDE.map(d => {
+    const scegliCorretta = Math.random() < 0.7; // il bot "sa" la risposta il 70% delle volte
+    const opzioneScelta = scegliCorretta ? d.corretta : Math.floor(Math.random() * (d.opzioni || []).length);
+    return { domandaId: d.id, opzioneScelta };
+  });
+
+  const percentualeFocus = Number(document.getElementById("campo-uscite-focus").value || 0);
+  let usciteFocus = 0, tempoFuoriFocusMs = 0;
+  if (Math.random() * 100 < percentualeFocus) {
+    usciteFocus = 1 + Math.floor(Math.random() * 3);
+    tempoFuoriFocusMs = Math.round((5 + Math.random() * 85) * 1000);
+  }
+
+  try {
+    const inizio = performance.now();
+    await funzioneInviaRisultato({
+      nomeCompleto: nomeBot,
+      perid: peridDiNome(nomeBot),
+      pin: PIN_TEST,
+      risposte: risposteScelte,
+      scadutoPerTempo: !!scadutoPerTempo,
+      usciteFocus,
+      tempoFuoriFocusMs
+    });
+    registraRtt(Math.round(performance.now() - inizio));
+    botAttivi.set(nomeBot, { stato: "consegnato" });
+    setDoc(riferimentoPresenza(ID_TEST, nomeBot), {
+      nome: nomeBot, stato: "completato", ultimoAggiornamento: Date.now(), sessione: MARCA_SESSIONE_SIMULATORE
+    }, { merge: true }).catch(() => {});
+  } catch (e) {
+    // La funzione risponde "already-exists" se questo nominativo ha
+    // già un risultato salvato: non è un vero errore, lo tratto
+    // come consegnato, esattamente come farebbe il quiz vero in
+    // questo stesso caso.
+    if (e && e.code === "functions/already-exists") {
+      botAttivi.set(nomeBot, { stato: "consegnato" });
+      log(nomeBot + ": risultava già consegnato in precedenza, non è un errore.", "ok");
+      return;
+    }
+    numeroErrori++;
+    elencoErroriCorsa.push({ nomeBot, fase: "risultato", messaggio: e.message || String(e), orario: new Date().toLocaleTimeString("it-IT") });
+    botAttivi.set(nomeBot, { stato: "errore" });
+    log(nomeBot + ": errore inviando il risultato — " + (e.message || e), "errore");
+  }
+}
+
+function collegaOsservatoreAvvio() {
+  if (annullaOsservatoreAvvio) return;
+  annullaOsservatoreAvvio = onSnapshot(riferimentoTest(ID_TEST), (istantanea) => {
+    const dati = istantanea.exists() ? istantanea.data() : {};
+
+    if (dati.avviatoTimestamp && !testAvviatoAdesso) {
+      testAvviatoAdesso = true;
+      log("Il test risulta avviato: i bot in attesa iniziano a rispondere.", "ok");
+      botInAttesaDiAvvio.forEach((percentualeAbbandono, nomeBot) => {
+        const info = botAttivi.get(nomeBot);
+        if (info && info.stato === "attesa") {
+          procediConRisposta(nomeBot, null, percentualeAbbandono);
+        }
+      });
+      botInAttesaDiAvvio.clear();
+    }
+
+    if (dati.terminatoTimestamp && !terminazioneGestita) {
+      terminazioneGestita = true;
+      log("Il responsabile ha terminato il turno: i bot ancora in corso consegnano subito.", "ok");
+      botAttivi.forEach((info, nomeBot) => {
+        if (info.stato === "attesa" || info.stato === "in_corso") {
+          botInAttesaDiAvvio.delete(nomeBot);
+          consegnaBot(nomeBot, true);
+        }
+      });
+    }
+
+    if ((!dati.avviatoTimestamp && terminazioneGestita) || dati.attivo === false) {
+      if (!turnoChiuso) {
+        turnoChiuso = true;
+        pingIdsAttivi.forEach(id => clearInterval(id));
+        pingIdsAttivi.clear();
+        log("Turno chiuso e azzerato: i bot smettono di segnalarsi.", "ok");
+        if (simulazioneInCorso) fermaEPulisci(true);
+      }
+    }
+
+    if (!dati.avviatoTimestamp) {
+      testAvviatoAdesso = false;
+    }
+  });
+}
+
+// ============================================================
+// AVVIA / FERMA SIMULAZIONE
+// ============================================================
+document.getElementById("btn-avvia").addEventListener("click", async () => {
+  if (!ID_TEST) {
+    log("Nessun test attivo: ricarica dopo averne attivato uno dal pannello admin.", "errore");
+    return;
+  }
+  if (STUDENTI.length === 0) {
+    log("Il test attivo non ha nessun allievo in elenco: non c'è nessun nome da assegnare ai bot.", "errore");
+    return;
+  }
+
+  const bottoneAvvia = document.getElementById("btn-avvia");
+  bottoneAvvia.disabled = true;
+  bottoneAvvia.textContent = "Controllo chi ha già consegnato...";
+
+  let nomiGiaConsegnati = new Set();
+  try {
+    const istantaneaRisultati = await getDocs(query(riferimentoRisultati(ID_TEST), where("annullato", "==", false)));
+    istantaneaRisultati.forEach(d => {
+      const nome = (d.data().nome || "").trim();
+      if (nome) nomiGiaConsegnati.add(nome);
+    });
+  } catch (e) {
+    bottoneAvvia.disabled = false;
+    bottoneAvvia.textContent = "▶ Avvia simulazione";
+    log("Impossibile controllare chi ha già consegnato: " + e.message, "errore");
+    return;
+  }
+  bottoneAvvia.disabled = false;
+  bottoneAvvia.textContent = "▶ Avvia simulazione";
+
+  const nomiDisponibili = STUDENTI.filter(nome => !ASSENTI_ATTUALI.has(nome) && !nomiGiaConsegnati.has(nome));
+  if (nomiDisponibili.length === 0) {
+    log("Tutti gli allievi disponibili (esclusi assenti e chi ha già consegnato) sono stati usati: nessun nome nuovo per i bot su questo test.", "errore");
+    return;
+  }
+
+  let numeroBot = Math.max(1, Math.min(500, parseInt(document.getElementById("campo-bot").value, 10) || 1));
+  const rampMs = Math.max(0, parseInt(document.getElementById("campo-ramp").value, 10) || 0);
+  const percentualeAbbandono = Math.max(0, Math.min(100, parseInt(document.getElementById("campo-abbandoni").value, 10) || 0));
+
+  if (numeroBot > nomiDisponibili.length) {
+    log("Richiesti " + numeroBot + " bot, ma i nomi nuovi disponibili sono solo " + nomiDisponibili.length +
+      " (" + STUDENTI.length + " allievi in elenco meno " + ASSENTI_ATTUALI.size + " assenti meno " + nomiGiaConsegnati.size + " che hanno già consegnato). Abbassa il numero di bot a " + nomiDisponibili.length + " o meno e riprova.", "errore");
+    return;
+  }
+  if (numeroBot > 256) {
+    log("Attenzione: oltre circa 250-300 connessioni nella stessa scheda Chrome può iniziare a fare da collo di bottiglia il browser stesso, non Firestore. Se serve testare numeri più alti, apri più schede o usa Node.js.", null);
+  }
+
+  const nomiMischiati = mischia(nomiDisponibili).slice(0, numeroBot);
+
+  simulazioneInCorso = true;
+  testAvviatoAdesso = false;
+  terminazioneGestita = false;
+  turnoChiuso = false;
+  idCorsaCorrente++;
+  pingIdsAttivi.clear();
+  botAttivi = new Map();
+  timerBot = [];
+  rttCampioni = [];
+  numeroBotRichiesti = numeroBot;
+  numeroBotConnessi = 0;
+  numeroErrori = 0;
+  botInAttesaDiAvvio.clear();
+  nomiUsatiUltimaCorsa = new Set(nomiMischiati);
+  tuttiRttCorsa = [];
+  elencoErroriCorsa = [];
+  orarioInizioCorsa = new Date();
+  orarioFineCorsa = null;
+  reportSegnalatoPerQuestaCorsa = false;
+  document.getElementById("btn-scarica-report").classList.remove("oro");
+
+  document.getElementById("btn-avvia").disabled = true;
+  document.getElementById("btn-ferma").disabled = false;
+
+  collegaOsservatoreAvvio();
+  log("Avvio simulazione: " + numeroBot + " bot con nomi presi dall'elenco allievi, ramp " + rampMs + " ms, test \"" + NOME_TEST + "\".");
+
+  nomiMischiati.forEach((nomeBot, indice) => {
+    pianificaTimer(() => eseguiBot(nomeBot, percentualeAbbandono, idCorsaCorrente), (indice + 1) * rampMs);
+  });
+});
+
+// ============================================================
+// REPORT TECNICO EXCEL
+// ============================================================
+const COLORE_INTESTAZIONE = "FF1D3557";
+const COLORE_OK = "FFB6E3B6";
+const COLORE_ATTENZIONE = "FFFFE1B0";
+const COLORE_ERRORE = "FFF4B6B6";
+
+let ultimoReportDisponibile = null;
+
+function catturaIstantaneaReport() {
+  if (numeroBotRichiesti === 0) return;
+  ultimoReportDisponibile = {
+    nomeTest: NOME_TEST, idTest: ID_TEST,
+    orarioInizio: orarioInizioCorsa, orarioFine: orarioFineCorsa || new Date(),
+    botRichiesti: numeroBotRichiesti, botConnessi: numeroBotConnessi,
+    botAttivi: new Map(botAttivi),
+    rtt: [...tuttiRttCorsa],
+    errori: [...elencoErroriCorsa]
+  };
+}
+
+async function generaEScaricaReport() {
+  const datiLive = numeroBotRichiesti > 0 && orarioInizioCorsa;
+  const sorgente = datiLive ? {
+    nomeTest: NOME_TEST, idTest: ID_TEST,
+    orarioInizio: orarioInizioCorsa, orarioFine: orarioFineCorsa || new Date(),
+    botRichiesti: numeroBotRichiesti, botConnessi: numeroBotConnessi,
+    botAttivi: botAttivi,
+    rtt: tuttiRttCorsa, errori: elencoErroriCorsa
+  } : ultimoReportDisponibile;
+
+  if (!sorgente) {
+    log("Nessuna corsa registrata da mettere nel report.", "errore");
+    return;
+  }
+
+  const fineEffettiva = sorgente.orarioFine;
+  const valori = Array.from(sorgente.botAttivi.values());
+  const consegnati = valori.filter(b => b.stato === "consegnato").length;
+  const abbandonati = valori.filter(b => b.stato === "abbandonato").length;
+  const errori = valori.filter(b => b.stato === "errore").length;
+  const inCorsoAllaFine = valori.filter(b => b.stato === "attesa" || b.stato === "in_corso" || b.stato === "connessione").length;
+
+  const rttOrdinati = [...sorgente.rtt].sort((a, b) => a - b);
+  const rttMedio = rttOrdinati.length ? Math.round(rttOrdinati.reduce((a, b) => a + b, 0) / rttOrdinati.length) : null;
+  const rttMinimo = rttOrdinati.length ? rttOrdinati[0] : null;
+  const rttMassimo = rttOrdinati.length ? rttOrdinati[rttOrdinati.length - 1] : null;
+  const rttMediana = rttOrdinati.length ? rttOrdinati[Math.floor(rttOrdinati.length / 2)] : null;
+
+  const cartella = new ExcelJS.Workbook();
+
+  const riepilogo = cartella.addWorksheet("Riepilogo");
+  riepilogo.columns = [{ width: 34 }, { width: 22 }];
+
+  function rigaTitolo(testo) {
+    const r = riepilogo.addRow([testo]);
+    r.font = { bold: true, size: 13, color: { argb: "FFFFFFFF" } };
+    r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } };
+    riepilogo.mergeCells(r.number, 1, r.number, 2);
+    return r;
+  }
+  function rigaDato(etichetta, valore, colore) {
+    const r = riepilogo.addRow([etichetta, valore]);
+    r.getCell(1).font = { bold: true };
+    if (colore) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colore } };
+    return r;
+  }
+
+  rigaTitolo("GesTest — Report tecnico simulazione di carico");
+  riepilogo.addRow([]);
+  rigaDato("Test usato per il collaudo", sorgente.nomeTest || sorgente.idTest);
+  rigaDato("ID test", sorgente.idTest);
+  rigaDato("Inizio corsa", sorgente.orarioInizio.toLocaleString("it-IT"));
+  rigaDato("Fine corsa", fineEffettiva.toLocaleString("it-IT"));
+  rigaDato("Durata corsa", formattaDurataSecondi(Math.round((fineEffettiva - sorgente.orarioInizio) / 1000)));
+  riepilogo.addRow([]);
+
+  rigaTitolo("Connessioni");
+  rigaDato("Bot richiesti", sorgente.botRichiesti);
+  rigaDato("Bot avviati (connessi)", sorgente.botConnessi);
+  rigaDato("Ancora in corso alla fine", inCorsoAllaFine, inCorsoAllaFine > 0 ? COLORE_ATTENZIONE : COLORE_OK);
+  riepilogo.addRow([]);
+
+  rigaTitolo("Esiti");
+  rigaDato("Consegnati", consegnati, COLORE_OK);
+  rigaDato("Abbandonati (simulati)", abbandonati);
+  rigaDato("Errori", errori, errori > 0 ? COLORE_ERRORE : COLORE_OK);
+  rigaDato("Percentuale di successo", sorgente.botRichiesti ? Math.round((consegnati / sorgente.botRichiesti) * 1000) / 10 + " %" : "—",
+    sorgente.botRichiesti && (consegnati / sorgente.botRichiesti) >= 0.95 ? COLORE_OK : COLORE_ATTENZIONE);
+  riepilogo.addRow([]);
+
+  rigaTitolo("Tempi di risposta della Cloud Function (RTT)");
+  rigaDato("Invii misurati", rttOrdinati.length);
+  rigaDato("RTT medio", rttMedio !== null ? rttMedio + " ms" : "—");
+  rigaDato("RTT mediano", rttMediana !== null ? rttMediana + " ms" : "—");
+  rigaDato("RTT minimo", rttMinimo !== null ? rttMinimo + " ms" : "—");
+  rigaDato("RTT massimo", rttMassimo !== null ? rttMassimo + " ms" : "—", (rttMassimo !== null && rttMassimo > 5000) ? COLORE_ATTENZIONE : null);
+
+  const dettaglio = cartella.addWorksheet("Dettaglio bot");
+  dettaglio.columns = [{ header: "Nome bot", width: 34 }, { header: "Stato finale", width: 18 }];
+  dettaglio.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  dettaglio.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } }; });
+  const etichetteStato = { connessione: "Connessione...", attesa: "In attesa", in_corso: "In svolgimento", consegnato: "Consegnato", abbandonato: "Abbandonato", errore: "Errore" };
+  const coloreStato = { consegnato: COLORE_OK, errore: COLORE_ERRORE, abbandonato: COLORE_ATTENZIONE };
+  Array.from(sorgente.botAttivi.entries()).sort((a, b) => a[0].localeCompare(b[0], "it")).forEach(([nome, info]) => {
+    const r = dettaglio.addRow([nome, etichetteStato[info.stato] || info.stato]);
+    if (coloreStato[info.stato]) r.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: coloreStato[info.stato] } };
+  });
+  dettaglio.views = [{ state: "frozen", ySplit: 1 }];
+
+  if (sorgente.errori.length > 0) {
+    const foglioErrori = cartella.addWorksheet("Errori");
+    foglioErrori.columns = [{ header: "Orario", width: 12 }, { header: "Bot", width: 30 }, { header: "Fase", width: 14 }, { header: "Messaggio", width: 60 }];
+    foglioErrori.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    foglioErrori.getRow(1).eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORE_INTESTAZIONE } }; });
+    sorgente.errori.forEach(e => {
+      const r = foglioErrori.addRow([e.orario, e.nomeBot, e.fase, e.messaggio]);
+      r.getCell(4).alignment = { wrapText: true };
+    });
+  }
+
+  const buffer = await cartella.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Report simulazione - " + (sorgente.nomeTest || sorgente.idTest) + " - " + fineEffettiva.toLocaleDateString("it-IT").replace(/\//g, "-") + ".xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  log("Report Excel scaricato.", "ok");
+}
+
+function formattaDurataSecondi(secondiTotali) {
+  const m = Math.floor(secondiTotali / 60), s = secondiTotali % 60;
+  return m > 0 ? (m + " min " + s + " s") : (s + " s");
+}
+
+document.getElementById("btn-scarica-report").addEventListener("click", () => {
+  document.getElementById("btn-scarica-report").classList.remove("oro");
+  generaEScaricaReport().catch(e => log("Errore nella generazione del report: " + e.message, "errore"));
+});
+
+async function fermaEPulisci(motivoAutomatico) {
+  simulazioneInCorso = false;
+  timerBot.forEach(id => clearTimeout(id));
+  timerBot = [];
+  if (annullaOsservatoreAvvio) { annullaOsservatoreAvvio(); annullaOsservatoreAvvio = null; }
+  testAvviatoAdesso = false;
+  botInAttesaDiAvvio.clear();
+  orarioFineCorsa = new Date();
+
+  catturaIstantaneaReport();
+  if (numeroBotRichiesti > 0) {
+    document.getElementById("btn-scarica-report").classList.add("oro");
+  }
+
+  botAttivi = new Map();
+  rttCampioni = [];
+  numeroBotRichiesti = 0;
+  numeroBotConnessi = 0;
+  numeroErrori = 0;
+  aggiornaInterfaccia();
+
+  document.getElementById("btn-ferma").disabled = true;
+  log(motivoAutomatico
+    ? "Turno chiuso: fermo e pulisco automaticamente. Pulizia delle presenze dei bot in corso..."
+    : "Simulazione fermata, contatori azzerati. Pulizia delle presenze dei bot in corso...");
+  await pulisciPresenzeBot();
+  log("Pulizia completata.", "ok");
+  document.getElementById("btn-avvia").disabled = false;
+}
+
+document.getElementById("btn-ferma").addEventListener("click", () => fermaEPulisci(false));
+
+// ============================================================
+// RESET PRESENZE BOT
+// ============================================================
+async function pulisciPresenzeBot() {
+  if (!ID_TEST) return;
+  try {
+    const istantanea = await getDocs(query(riferimentoPresenze(ID_TEST), where("sessione", "==", MARCA_SESSIONE_SIMULATORE)));
+    if (istantanea.empty) return;
+    const batch = writeBatch(db);
+    istantanea.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    log("Rimossi " + istantanea.size + " documenti di presenza dei bot.", "ok");
+  } catch (e) {
+    log("Errore nella pulizia delle presenze: " + e.message, "errore");
+  }
+}
+document.getElementById("btn-reset-presenze").addEventListener("click", () => {
+  if (!ID_TEST) { log("Nessun test attivo.", "errore"); return; }
+  pulisciPresenzeBot();
+});
+
+// ============================================================
+// RESET RISULTATI SIMULAZIONE — tocca solo i nomi usati
+// nell'ultima corsa registrata in questa pagina.
+// ============================================================
+document.getElementById("btn-reset-risultati").addEventListener("click", async () => {
+  if (!ID_TEST) { log("Nessun test attivo.", "errore"); return; }
+  if (nomiUsatiUltimaCorsa.size === 0) { log("Nessuna corsa di simulazione registrata in questa pagina: non so quali nomi ripulire. Se hai ricaricato la pagina, duplica il test dall'admin invece di cercare di ripulirlo qui.", "errore"); return; }
+  if (!confirm('Cancellare i risultati dei ' + nomiUsatiUltimaCorsa.size + ' allievi usati nell\'ultima simulazione su questo test?')) return;
+  try {
+    const batch = writeBatch(db);
+    let contatore = 0;
+    nomiUsatiUltimaCorsa.forEach(nome => {
+      batch.delete(riferimentoRisultato(ID_TEST, nome));
+      contatore++;
+    });
+    await batch.commit();
+    log("Cancellati " + contatore + " risultati della simulazione.", "ok");
+  } catch (e) {
+    log("Errore nella cancellazione: " + e.message, "errore");
+  }
+});
+
+// ============================================================
+// PULIZIA DOCUMENTI VUOTI
+// ============================================================
+async function svuotaSottocollezioneOrfano(riferimentoTestOrfano, nomeSottocollezione) {
+  const istantanea = await getDocs(collection(riferimentoTestOrfano, nomeSottocollezione));
+  if (istantanea.empty) return;
+  const batch = writeBatch(db);
+  istantanea.forEach(d => batch.delete(d.ref));
+  await batch.commit();
+}
+
+document.getElementById("btn-pulisci-vuoti").addEventListener("click", async () => {
+  const bottone = document.getElementById("btn-pulisci-vuoti");
+  bottone.disabled = true; bottone.textContent = "Ricerca in corso...";
+  try {
+    const istantanea = await getDocs(collection(db, "test"));
+    const orfani = [];
+    for (const documento of istantanea.docs) {
+      const privato = await getDoc(riferimentoTestPrivato(documento.id));
+      if (!privato.exists() || !Array.isArray(privato.data().domande)) orfani.push(documento);
+    }
+    bottone.disabled = false; bottone.textContent = "🧹 Pulisci documenti vuoti";
+
+    if (orfani.length === 0) {
+      log("Nessun documento vuoto trovato: la collezione \"test\" è pulita.", "ok");
+      return;
+    }
+    const elencoId = orfani.map(d => d.id).join(", ");
+    if (!confirm('Trovati ' + orfani.length + ' documenti "di solo stato" (senza domande dentro), probabilmente residui di collaudi:\n\n' + elencoId +
+      '\n\nEliminarli, comprese eventuali presenze o risultati residui al loro interno? L\'operazione non può essere annullata e non riguarda in nessun modo i test veri, che restano intoccati.')) return;
+
+    bottone.disabled = true; bottone.textContent = "Eliminazione in corso...";
+    let eliminati = 0;
+    for (const documento of orfani) {
+      await svuotaSottocollezioneOrfano(documento.ref, "presenze");
+      await svuotaSottocollezioneOrfano(documento.ref, "risultati");
+      await deleteDoc(riferimentoTestPrivato(documento.id)).catch(() => {});
+      await deleteDoc(documento.ref);
+      eliminati++;
+      bottone.textContent = "Eliminazione in corso... (" + eliminati + "/" + orfani.length + ")";
+    }
+    bottone.disabled = false; bottone.textContent = "🧹 Pulisci documenti vuoti";
+    log("Eliminati " + eliminati + " documenti vuoti (comprese eventuali sottocollezioni residue).", "ok");
+  } catch (e) {
+    bottone.disabled = false; bottone.textContent = "🧹 Pulisci documenti vuoti";
+    log("Errore nella pulizia: " + e.message, "errore");
+  }
+});
+</script>
+
+</body>
+</html>
