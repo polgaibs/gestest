@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<!-- VERSIONE 3, progetto con backend. Rispetto alla versione
+     precedente: questa pagina non legge più "studenti" e "assenti"
+     (che ora vivono nel documento privato, non accessibile
+     pubblicamente), ma i loro CONTEGGI pubblici
+     (numeroStudenti, numeroAssenti), scritti da admin.html. Tutto il
+     resto del comportamento (countdown, riepilogo di sessione,
+     chiusura automatica, riquadro andamento) resta identico. -->
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scuola Pol.G.A.I. Brescia — Test Valutazione</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --blu: #1d3557;
+    --blu-scuro: #0f1e30;
+    --blu-chiaro: #457b9d;
+    --oro: #c9a04a;
+    --bianco: #ffffff;
+    --verde: #2a9d8f;
+    --rosso: #e63946;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: radial-gradient(circle at center, var(--blu) 0%, var(--blu-scuro) 100%);
+    color: var(--bianco);
+    overflow: hidden;
+  }
+  .palco {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+    padding: clamp(10px, 2.2vh, 26px) clamp(16px, 2.8vw, 44px);
+    gap: clamp(8px, 1.8vh, 20px);
+  }
+
+  .intestazione {
+    position: relative;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .marchio {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .stemma {
+    height: clamp(95px, 17vh, 210px);
+    width: auto;
+    margin-bottom: 0.8vh;
+    filter: drop-shadow(0 6px 18px rgba(0,0,0,0.4));
+    animation: pulsaStemma 2.6s ease-in-out infinite;
+  }
+  @keyframes pulsaStemma {
+    0%, 100% {
+      transform: scale(1);
+      filter: drop-shadow(0 6px 18px rgba(0,0,0,0.4));
+    }
+    50% {
+      transform: scale(1.06);
+      filter: drop-shadow(0 8px 26px rgba(201,160,74,0.55));
+    }
+  }
+  h1 {
+    font-size: clamp(1.6rem, 2.8vw, 2.6rem);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+  }
+  .linea-oro {
+    width: 90px;
+    height: 3px;
+    background: var(--oro);
+    margin: 0.9vh auto 0;
+    border-radius: 2px;
+  }
+  .titolo-test-contenitore {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    max-width: 38%;
+  }
+  #sottotitolo-test {
+    font-size: clamp(1.3rem, 2.8vw, 2.5rem);
+    font-weight: 700;
+    color: var(--oro);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .corpo {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    align-items: center;
+    justify-items: center;
+    gap: clamp(14px, 2.6vw, 40px);
+  }
+  .corpo.a-colonna-singola {
+    grid-template-columns: 1fr;
+  }
+  .colonna {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-width: 0;
+    max-height: 100%;
+  }
+  .colonna-hero {
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+  }
+  #blocco-test-attivo, #blocco-qr-accesso {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+  }
+  .riquadro-qr {
+    background: var(--bianco);
+    padding: clamp(8px, 1.2vh, 16px);
+    border-radius: 18px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    display: inline-block;
+    margin: 0 auto;
+  }
+  #qrcode {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #qrcode img, #qrcode canvas {
+    width: clamp(180px, 28vh, 340px) !important;
+    height: clamp(180px, 28vh, 340px) !important;
+  }
+  .istruzione {
+    margin-top: 1.4vh;
+    font-size: clamp(1.05rem, 1.4vw, 1.3rem);
+    font-weight: 600;
+    color: var(--bianco);
+    max-width: 90%;
+  }
+  .istruzione-secondaria {
+    margin-top: 0.6vh;
+    font-size: clamp(0.9rem, 1.1vw, 1.05rem);
+    color: rgba(255,255,255,0.7);
+    font-weight: 400;
+  }
+  #testo-durata-landing {
+    margin-top: 1vh;
+    font-size: clamp(1.3rem, 2.4vw, 2.1rem);
+    font-weight: 700;
+    color: var(--oro);
+  }
+  .istruzione-critica {
+    margin-top: 1.4vh;
+    font-size: clamp(1.05rem, 1.6vw, 1.4rem);
+    font-weight: 700;
+    color: var(--oro);
+    max-width: 90%;
+    padding: 12px 18px;
+    border: 1px solid rgba(201,160,74,0.5);
+    border-radius: 12px;
+    background: rgba(201,160,74,0.08);
+  }
+  .scritta-pausa-grande {
+    font-size: clamp(2.4rem, 6vh, 5rem);
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--blu-chiaro);
+    text-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  #contenitore-countdown-landing {
+    margin: 1.2vh 0;
+  }
+  #countdown-landing {
+    display: inline-block;
+    font-size: clamp(2rem, 5.5vh, 4.2rem);
+    font-weight: 700;
+    color: white;
+    padding: clamp(6px, 1vh, 12px) clamp(20px, 2.4vw, 36px);
+    border-radius: 14px;
+    letter-spacing: 2px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    transition: background-color 1s linear;
+  }
+  @keyframes lampeggiaCritico {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  #countdown-landing.timer-critico {
+    animation: lampeggiaCritico 1s infinite;
+  }
+  .link-testuale {
+    margin-top: 1vh;
+    font-size: clamp(0.8rem, 1vw, 1rem);
+    color: var(--oro);
+    letter-spacing: 0.5px;
+    word-break: break-all;
+  }
+  .nascosto { display: none !important; }
+  .messaggio-nessun-test {
+    background: rgba(230,57,70,0.12);
+    border: 1px solid var(--rosso);
+    border-radius: 14px;
+    padding: clamp(14px, 2.4vh, 26px) clamp(16px, 2.4vw, 30px);
+    max-width: 95%;
+  }
+  .messaggio-nessun-test p:first-child {
+    font-size: clamp(0.95rem, 1.6vw, 1.3rem);
+    font-weight: 700;
+    color: var(--bianco);
+    margin-bottom: 8px;
+  }
+
+  .colonna-controllo {
+    display: none;
+    width: 100%;
+    justify-content: center;
+    gap: clamp(8px, 1.4vh, 16px);
+  }
+  .colonna-controllo.visibile { display: flex; }
+
+  .riquadro-andamento {
+    width: 100%;
+    max-width: 480px;
+    position: relative;
+    background: rgba(46,204,154,0.08);
+    border: 1px solid var(--verde);
+    border-radius: 14px;
+    padding: clamp(10px, 1.6vh, 18px) clamp(12px, 1.6vw, 20px);
+    text-align: center;
+    margin: 1.4vh auto 0;
+  }
+  .segnale-neutro {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.5px;
+  }
+  .testo-andamento {
+    font-size: clamp(1.15rem, 2vw, 1.6rem);
+    font-weight: 700;
+    color: var(--verde);
+  }
+  .barra-andamento-contenitore {
+    background: rgba(255,255,255,0.1);
+    border-radius: 20px;
+    height: clamp(10px, 1.4vh, 16px);
+    overflow: hidden;
+    margin: clamp(6px, 1vh, 10px) 0 4px;
+  }
+  .barra-andamento-interna {
+    height: 100%;
+    background: var(--verde);
+    border-radius: 20px;
+    transition: width 0.6s ease;
+  }
+  .sottotesto-andamento {
+    font-size: clamp(0.85rem, 1.1vw, 1.05rem);
+    color: rgba(255,255,255,0.75);
+  }
+  .contatori {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: clamp(8px, 1vw, 14px);
+    width: 100%;
+  }
+  .contatore {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(201,160,74,0.4);
+    border-radius: 12px;
+    padding: clamp(8px, 1.2vh, 14px) 8px;
+    text-align: center;
+  }
+  .contatore .icona { font-size: clamp(1.3rem, 2vw, 1.9rem); }
+  .contatore .numero {
+    font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+    font-weight: 700;
+    color: var(--oro);
+    display: block;
+    margin: 2px 0;
+  }
+  .contatore .etichetta {
+    font-size: clamp(0.85rem, 1.1vw, 1.05rem);
+    color: rgba(255,255,255,0.75);
+  }
+
+  .riga-pulsanti-controllo {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: clamp(6px, 1vh, 10px);
+    width: 100%;
+  }
+  .riga-pulsanti-controllo button {
+    width: 100%;
+    padding: clamp(9px, 1.5vh, 14px) 18px;
+    font-size: clamp(1rem, 1.3vw, 1.25rem);
+    font-weight: 700;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    white-space: nowrap;
+  }
+  .btn-avvia-sincronizzato { background: var(--verde); color: white; }
+  .btn-avvia-sincronizzato:hover { background: #238a7e; }
+  .btn-avvia-sincronizzato:disabled { background: #666; cursor: default; }
+  .btn-termina-sincronizzato { background: var(--rosso); color: white; }
+  .btn-termina-sincronizzato:hover { background: #c62d3a; }
+  .btn-termina-sincronizzato:disabled { background: #666; cursor: default; }
+  .btn-pausa-sincronizzato { background: var(--blu-chiaro); color: white; }
+  .btn-pausa-sincronizzato:hover { background: #35617f; }
+  .stato-avvio {
+    margin-top: 0.4vh;
+    font-size: clamp(0.95rem, 1.2vw, 1.15rem);
+    color: var(--oro);
+    font-weight: 600;
+  }
+
+  .btn-schermo-intero {
+    position: fixed;
+    right: clamp(14px, 2vw, 28px);
+    bottom: clamp(14px, 2vh, 28px);
+    width: clamp(40px, 4.5vw, 52px);
+    height: clamp(40px, 4.5vw, 52px);
+    border-radius: 50%;
+    border: 1px solid rgba(201,160,74,0.5);
+    background: rgba(255,255,255,0.08);
+    color: var(--oro);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 50;
+  }
+  .btn-schermo-intero:hover { background: rgba(255,255,255,0.16); }
+  .btn-schermo-intero svg { width: 55%; height: 55%; }
+
+  @media (max-aspect-ratio: 4/5) {
+    html, body { overflow-y: auto; overflow-x: hidden; }
+    .palco { height: auto; min-height: 100vh; }
+    .intestazione { flex-direction: column; align-items: center; gap: 1.4vh; }
+    .titolo-test-contenitore {
+      position: static;
+      align-items: center;
+      text-align: center;
+      max-width: 100%;
+    }
+    .corpo {
+      grid-template-columns: 1fr;
+      padding: 2vh 0;
+    }
+    .colonna-controllo.visibile { max-width: 420px; margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V3 REV. 1</div>
+
+<div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
+  Connessione instabile con Firestore, sto ritentando in automatico...
+</div>
+
+<div class="palco" id="palco">
+  <div class="intestazione">
+    <div class="marchio">
+      <img src="stemma.png" alt="Stemma" class="stemma">
+      <h1>Scuola Pol.G.A.I. Brescia</h1>
+      <div class="linea-oro"></div>
+      <div id="blocco-caricamento" class="istruzione-secondaria">Caricamento in corso...</div>
+    </div>
+    <div class="titolo-test-contenitore" id="titolo-test-contenitore">
+      <div id="sottotitolo-test">Test di valutazione</div>
+      <div id="credito-nessun-test" class="istruzione-secondaria nascosto" style="text-align:left; margin-top:0.3vh;">realizzato dall'Ufficio Informatico Scuola Pol.G.A.I.</div>
+    </div>
+  </div>
+
+  <div class="corpo" id="corpo">
+    <div class="colonna colonna-hero">
+      <div id="blocco-nessun-test" class="messaggio-nessun-test nascosto">
+        <p>Al momento non risulta nessun test attivo.</p>
+        <p class="istruzione-secondaria">Il test deve essere abilitato a cura dell'ufficio Studi.</p>
+      </div>
+
+      <div id="blocco-riepilogo-sessione" class="nascosto" style="max-width:640px; margin:0 auto; text-align:center;">
+        <h2 style="color:var(--oro); font-size:clamp(1.5rem, 3.4vw, 2.4rem); margin-bottom:2vh;">Sessione nr. <span id="riepilogo-numero-sessione">1</span> conclusa</h2>
+        <div class="contatori">
+          <div class="contatore">
+            <div class="icona">🙋</div>
+            <span class="numero" id="riepilogo-partecipanti">0</span>
+            <div class="etichetta">Partecipanti sessione</div>
+          </div>
+          <div class="contatore">
+            <div class="icona">✅</div>
+            <span class="numero" id="riepilogo-completati">0</span>
+            <div class="etichetta">Completati sessione</div>
+          </div>
+          <div class="contatore">
+            <div class="icona">🚪</div>
+            <span class="numero" id="riepilogo-abbandoni">0</span>
+            <div class="etichetta">Abbandoni sessione</div>
+          </div>
+          <div class="contatore">
+            <div class="icona">⏳</div>
+            <span class="numero" id="riepilogo-mancanti">0</span>
+            <div class="etichetta">Mancanti in generale</div>
+          </div>
+        </div>
+        <button class="btn-avvia-sincronizzato" id="btn-nuova-sessione" style="max-width:340px; margin:3vh auto 0;">Nuova sessione</button>
+      </div>
+
+      <div id="blocco-test-attivo" class="nascosto">
+        <div id="blocco-qr-accesso">
+          <div class="riquadro-qr">
+            <div id="qrcode"></div>
+          </div>
+          <p class="istruzione">Inquadra il codice QR con la fotocamera del telefono per accedere</p>
+          <p class="istruzione-secondaria">Tieni pronto il PIN che ti verrà comunicato prima dell'avvio</p>
+          <p class="link-testuale" id="link-testuale-quiz"></p>
+        </div>
+        <p class="scritta-pausa-grande nascosto" id="scritta-pausa-grande">PAUSA</p>
+        <p class="istruzione-critica nascosto" id="avviso-test-in-corso">Il test è già iniziato. Non è più possibile accedere in questo momento.</p>
+        <div class="riquadro-andamento nascosto" id="riquadro-andamento">
+          <span class="segnale-neutro nascosto" id="segnale-neutro" title=""></span>
+          <div class="testo-andamento" id="testo-andamento">0 su 0 hanno consegnato</div>
+          <div class="barra-andamento-contenitore">
+            <div class="barra-andamento-interna" id="barra-andamento-interna" style="width:0%;"></div>
+          </div>
+          <div class="sottotesto-andamento" id="sottotesto-andamento"></div>
+        </div>
+        <p class="istruzione-secondaria" id="testo-durata-landing"></p>
+        <p class="istruzione-secondaria nascosto" id="testo-soglia-landing"></p>
+        <div id="contenitore-countdown-landing" class="nascosto">
+          <div id="countdown-landing">20:00</div>
+          <p class="istruzione-secondaria" id="testo-numero-sessione" style="margin-top:0.6vh;"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Colonna di controllo: compare solo quando c'è un test attivo -->
+    <div class="colonna colonna-controllo" id="pannello-controllo">
+      <div class="contatori">
+        <div class="contatore">
+          <div class="icona">⏳</div>
+          <span class="numero" id="numero-mancanti">0</span>
+          <div class="etichetta">Mancanti</div>
+        </div>
+        <div class="contatore">
+          <div class="icona">🚫</div>
+          <span class="numero" id="numero-assenti">0</span>
+          <div class="etichetta">Assenti</div>
+        </div>
+        <div class="contatore">
+          <div class="icona">🙋</div>
+          <span class="numero" id="numero-connessi">0</span>
+          <div class="etichetta">Connessi</div>
+        </div>
+        <div class="contatore">
+          <div class="icona">🕐</div>
+          <span class="numero" id="numero-attesa">0</span>
+          <div class="etichetta">In attesa inizio</div>
+        </div>
+        <div class="contatore">
+          <div class="icona">✍️</div>
+          <span class="numero" id="numero-svolgimento">0</span>
+          <div class="etichetta">In svolgimento</div>
+        </div>
+        <div class="contatore">
+          <div class="icona">✅</div>
+          <span class="numero" id="numero-completati">0</span>
+          <div class="etichetta">Completati</div>
+        </div>
+      </div>
+
+      <div class="riga-pulsanti-controllo">
+        <button class="btn-avvia-sincronizzato" id="btn-avvia-tutti">Avvia il test per tutti</button>
+        <button class="btn-pausa-sincronizzato nascosto" id="btn-pausa-tutti">Pausa timer per tutti</button>
+        <button class="btn-pausa-sincronizzato nascosto" id="btn-riprendi-tutti">Riprendi il test per tutti</button>
+        <button class="btn-termina-sincronizzato nascosto" id="btn-chiudi-turno">Termina manualmente</button>
+      </div>
+      <p class="stato-avvio nascosto" id="stato-avvio">Il test è stato avviato per tutti gli allievi in attesa.</p>
+      <p class="stato-avvio nascosto" id="stato-pausa">Il test è in pausa. Gli allievi sono bloccati su una schermata di attesa, il timer è fermo.</p>
+      <p class="stato-avvio nascosto" id="stato-scaduto">Il tempo è scaduto. Gli ultimi allievi stanno inviando automaticamente le risposte.</p>
+    </div>
+  </div>
+</div>
+
+<button class="btn-schermo-intero" id="btn-schermo-intero" title="Schermo intero" aria-label="Schermo intero">
+  <svg id="icona-schermo-intero" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+    <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+    <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+    <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+  </svg>
+</button>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc,
+  collection, getDocs, query, where, writeBatch, increment
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+// ============================================================
+// FIREBASE — progetto NUOVO (gestest-v2-fb16b). Questa pagina
+// legge SOLO il documento pubblico del test: nome, durata, soglia,
+// stato del turno, e i CONTEGGI di allievi/assenti (numeroStudenti,
+// numeroAssenti), scritti da admin.html. Mai PIN, domande o i nomi
+// degli allievi, che vivono solo nel documento privato.
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyC7sd8dmrLrU5D-wkBB47zGkfdSxDU6Qcc",
+  authDomain: "gestest-v2-fb16b.firebaseapp.com",
+  projectId: "gestest-v2-fb16b",
+  storageBucket: "gestest-v2-fb16b.firebasestorage.app",
+  messagingSenderId: "599095343445",
+  appId: "1:599095343445:web:9d350823aceb9fd43197dc",
+  measurementId: "G-2VB4721H78"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+
+function riferimentoTest(idTest) { return doc(db, "test", idTest); }
+function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
+function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
+function riferimentoStatoAttivo() { return doc(db, "stato", "attivo"); }
+
+const URL_QUIZ = new URL("quiz.html", window.location.href).href;
+
+function esadecimaleARgb(esadecimale) {
+  const pulito = esadecimale.replace("#", "");
+  return {
+    r: parseInt(pulito.substring(0, 2), 16),
+    g: parseInt(pulito.substring(2, 4), 16),
+    b: parseInt(pulito.substring(4, 6), 16)
+  };
+}
+function interpolaColore(colore1, colore2, t) {
+  const c1 = esadecimaleARgb(colore1);
+  const c2 = esadecimaleARgb(colore2);
+  const r = Math.round(c1.r + (c2.r - c1.r) * t);
+  const g = Math.round(c1.g + (c2.g - c1.g) * t);
+  const b = Math.round(c1.b + (c2.b - c1.b) * t);
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+function coloreTimerDaFrazione(frazione) {
+  if (frazione <= 0.10) return "#e63946";
+  if (frazione <= 0.5) {
+    const t = (0.5 - frazione) / (0.5 - 0.10);
+    return interpolaColore("#c9a04a", "#e63946", t);
+  }
+  const t = Math.min((1 - frazione) / (1 - 0.5), 1);
+  return interpolaColore("#2a9d8f", "#c9a04a", t);
+}
+
+try {
+  new QRCode(document.getElementById("qrcode"), {
+    text: URL_QUIZ,
+    width: 340,
+    height: 340,
+    colorDark: "#1d3557",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  document.getElementById("link-testuale-quiz").textContent = URL_QUIZ.replace(/^https?:\/\//, "");
+} catch (erroreQr) {
+  document.getElementById("qrcode").innerHTML =
+    '<p style="color:#e63946; font-weight:600; padding:20px;">QR code non disponibile, usa il link qui sopra</p>';
+  document.getElementById("link-testuale-quiz").textContent = URL_QUIZ.replace(/^https?:\/\//, "");
+}
+
+let ID_TEST_ATTIVO = "";
+let TEST_HA_TIMER = false;
+let TURNO_IN_CORSO = false;
+let TEST_TERMINATO_ADESSO = false;
+let NUMERO_SESSIONE_CORRENTE = 1;
+let mostrandoRiepilogoSessione = false;
+let candidatoRiepilogoSessione = null;
+let NUMERO_STUDENTI_TOTALE = 0;
+let NUMERO_ASSENTI_TOTALE = 0;
+let pollingStatistiche = null;
+let annullaOsservatoreTest = null;
+let generazioneOsservatoreTest = 0;
+
+function resettaPannelloControllo() {
+  const bottoneAvvia = document.getElementById("btn-avvia-tutti");
+  bottoneAvvia.disabled = false;
+  bottoneAvvia.textContent = "Avvia il test per tutti";
+  document.getElementById("stato-avvio").classList.add("nascosto");
+
+  document.getElementById("btn-pausa-tutti").classList.add("nascosto");
+  document.getElementById("btn-riprendi-tutti").classList.add("nascosto");
+  document.getElementById("stato-pausa").classList.add("nascosto");
+
+  const bottoneChiudi = document.getElementById("btn-chiudi-turno");
+  bottoneChiudi.classList.add("nascosto");
+  bottoneChiudi.disabled = false;
+  bottoneChiudi.textContent = "Termina manualmente";
+
+  document.getElementById("stato-scaduto").classList.add("nascosto");
+  document.getElementById("scritta-pausa-grande").classList.add("nascosto");
+}
+
+let azioneInCorso = false;
+
+let datiTimerCorrente = null;
+let intervalloCountdownLanding = null;
+
+function calcolaSecondiRimasti(dati) {
+  if (!dati || !dati.avviatoTimestamp || !dati.durataMinuti) return null;
+  const ora = Date.now();
+  const pausaInCorsoMs = dati.pausaTimestamp ? (ora - Number(dati.pausaTimestamp)) : 0;
+  const msTrascorsiEffettivi = (ora - Number(dati.avviatoTimestamp)) - Number(dati.totalePausaMs || 0) - pausaInCorsoMs;
+  return Math.max(dati.durataMinuti * 60 - Math.floor(msTrascorsiEffettivi / 1000), 0);
+}
+
+function aggiornaVisualeCountdownLanding() {
+  const secondiRimasti = calcolaSecondiRimasti(datiTimerCorrente);
+  if (secondiRimasti === null) return;
+  const el = document.getElementById("countdown-landing");
+  const minuti = Math.floor(secondiRimasti / 60);
+  const secondi = secondiRimasti % 60;
+  el.textContent = String(minuti).padStart(2, "0") + ":" + String(secondi).padStart(2, "0");
+
+  const frazione = secondiRimasti / (datiTimerCorrente.durataMinuti * 60);
+  el.style.backgroundColor = coloreTimerDaFrazione(frazione);
+  if (frazione <= 0.10) {
+    el.classList.add("timer-critico");
+  } else {
+    el.classList.remove("timer-critico");
+  }
+
+  if (secondiRimasti === 0 && !datiTimerCorrente.pausaTimestamp) {
+    mostraTempoScaduto();
+    fermaCountdownLanding();
+  }
+}
+
+function programmaProssimoBattitoCountdown() {
+  if (intervalloCountdownLanding) clearTimeout(intervalloCountdownLanding);
+  const ritardoAlProssimoSecondo = 1000 - (Date.now() % 1000);
+  intervalloCountdownLanding = setTimeout(() => {
+    aggiornaVisualeCountdownLanding();
+    if (intervalloCountdownLanding !== null) programmaProssimoBattitoCountdown();
+  }, ritardoAlProssimoSecondo);
+}
+
+function fermaCountdownLanding() {
+  if (intervalloCountdownLanding) {
+    clearTimeout(intervalloCountdownLanding);
+    intervalloCountdownLanding = null;
+  }
+}
+
+function impostaTitoloTest(nome) {
+  const el = document.getElementById("sottotitolo-test");
+  const contenitore = document.getElementById("titolo-test-contenitore");
+  el.style.fontSize = "";
+  el.textContent = nome;
+  if (!nome) return;
+
+  const dimensioneMassimaPx = parseFloat(getComputedStyle(el).fontSize);
+  const dimensioneMinimaPx = dimensioneMassimaPx * 0.35;
+  let dimensione = dimensioneMassimaPx;
+  while (el.scrollWidth > contenitore.clientWidth && dimensione > dimensioneMinimaPx) {
+    dimensione -= 1;
+    el.style.fontSize = dimensione + "px";
+  }
+}
+
+function mostraBannerConnessione(visibile) {
+  document.getElementById("banner-connessione").style.display = visibile ? "block" : "none";
+}
+
+function registraAvvisoClient(categoria, messaggio) {
+  setDoc(doc(collection(db, "log")), {
+    tipo: "AVVISO CLIENT",
+    categoria: categoria,
+    messaggio: messaggio,
+    idTest: ID_TEST_ATTIVO,
+    timestamp: new Date().toLocaleString("it-IT")
+  }).catch(() => {});
+}
+
+let intervalloBattitoLocandina = null;
+function inviaBattitoLocandina() {
+  if (!ID_TEST_ATTIVO) return;
+  setDoc(riferimentoTest(ID_TEST_ATTIVO), { locandinaUltimoAggiornamento: Date.now() }, { merge: true }).catch(() => {});
+}
+function avviaBattitoLocandina() {
+  inviaBattitoLocandina();
+  if (intervalloBattitoLocandina) clearInterval(intervalloBattitoLocandina);
+  intervalloBattitoLocandina = setInterval(inviaBattitoLocandina, 15000);
+}
+function fermaBattitoLocandina() {
+  if (intervalloBattitoLocandina) { clearInterval(intervalloBattitoLocandina); intervalloBattitoLocandina = null; }
+}
+
+function mostraNessunTestAttivo() {
+  document.getElementById("blocco-caricamento").classList.add("nascosto");
+  document.getElementById("blocco-test-attivo").classList.add("nascosto");
+  document.getElementById("blocco-nessun-test").classList.remove("nascosto");
+  document.getElementById("titolo-test-contenitore").classList.remove("nascosto");
+  impostaTitoloTest("GesTest");
+  document.getElementById("credito-nessun-test").classList.remove("nascosto");
+  document.getElementById("pannello-controllo").classList.remove("visibile");
+  document.getElementById("corpo").classList.add("a-colonna-singola");
+  if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
+  fermaCountdownLanding();
+  fermaBattitoLocandina();
+  generazioneOsservatoreTest++;
+  if (annullaOsservatoreTest) { annullaOsservatoreTest(); annullaOsservatoreTest = null; }
+  ID_TEST_ATTIVO = "";
+  TEST_HA_TIMER = false;
+  TURNO_IN_CORSO = false;
+  candidatoRiepilogoSessione = null;
+  NUMERO_ASSENTI_TOTALE = 0;
+}
+
+function aggiornaStatoDaFirestore() {
+  if (mostrandoRiepilogoSessione) return;
+  getDoc(riferimentoStatoAttivo()).then(istantaneaPuntatore => {
+    mostraBannerConnessione(false);
+    const idAttivo = istantaneaPuntatore.exists() ? istantaneaPuntatore.data().idTest : null;
+
+    if (!idAttivo) {
+      if (ID_TEST_ATTIVO) mostraNessunTestAttivo();
+      return;
+    }
+
+    if (idAttivo !== ID_TEST_ATTIVO) {
+      resettaPannelloControllo();
+      ID_TEST_ATTIVO = idAttivo;
+    }
+
+    getDoc(riferimentoTest(idAttivo)).then(istantaneaTest => {
+      if (idAttivo !== ID_TEST_ATTIVO) return;
+      mostraBannerConnessione(false);
+      if (!istantaneaTest.exists() || istantaneaTest.data().attivo !== true) {
+        mostraNessunTestAttivo();
+        return;
+      }
+      document.getElementById("blocco-caricamento").classList.add("nascosto");
+      gestisciStatoTestLocandina(istantaneaTest.data());
+    }).catch(() => {
+      mostraBannerConnessione(true);
+    });
+  }).catch(() => {
+    mostraBannerConnessione(true);
+  });
+}
+
+function gestisciStatoTestLocandina(dati) {
+  if (candidatoRiepilogoSessione && !dati.avviatoTimestamp && !mostrandoRiepilogoSessione) {
+    const riepilogo = candidatoRiepilogoSessione;
+    candidatoRiepilogoSessione = null;
+    catturaEMostraRiepilogoSessione(riepilogo);
+    return;
+  }
+
+  document.getElementById("blocco-nessun-test").classList.add("nascosto");
+  document.getElementById("titolo-test-contenitore").classList.remove("nascosto");
+  document.getElementById("corpo").classList.remove("a-colonna-singola");
+  document.getElementById("blocco-test-attivo").classList.remove("nascosto");
+  impostaTitoloTest(dati.nome || "");
+  document.getElementById("credito-nessun-test").classList.add("nascosto");
+
+  TEST_HA_TIMER = (dati.durataMinuti || 0) > 0;
+  NUMERO_STUDENTI_TOTALE = dati.numeroStudenti || 0;
+  NUMERO_ASSENTI_TOTALE = dati.numeroAssenti || 0;
+  document.getElementById("numero-assenti").textContent = NUMERO_ASSENTI_TOTALE + " di " + NUMERO_STUDENTI_TOTALE;
+
+  document.getElementById("pannello-controllo").classList.add("visibile");
+  if (!pollingStatistiche) {
+    aggiornaStatistiche();
+    pollingStatistiche = setInterval(aggiornaStatistiche, 3000);
+  }
+  if (!intervalloBattitoLocandina) avviaBattitoLocandina();
+
+  datiTimerCorrente = {
+    durataMinuti: dati.durataMinuti || 0,
+    avviatoTimestamp: dati.avviatoTimestamp || null,
+    pausaTimestamp: dati.pausaTimestamp || null,
+    totalePausaMs: dati.totalePausaMs || 0
+  };
+
+  if (TEST_HA_TIMER && dati.avviatoTimestamp && !dati.terminatoTimestamp) {
+    document.getElementById("testo-durata-landing").classList.add("nascosto");
+    document.getElementById("testo-soglia-landing").classList.add("nascosto");
+    document.getElementById("contenitore-countdown-landing").classList.remove("nascosto");
+    if (dati.pausaTimestamp || calcolaSecondiRimasti(datiTimerCorrente) > 0) {
+      aggiornaVisualeCountdownLanding();
+      if (!intervalloCountdownLanding) programmaProssimoBattitoCountdown();
+    } else {
+      aggiornaVisualeCountdownLanding();
+      fermaCountdownLanding();
+    }
+  } else {
+    document.getElementById("testo-durata-landing").classList.remove("nascosto");
+    document.getElementById("testo-durata-landing").textContent =
+      datiTimerCorrente.durataMinuti > 0
+        ? "Durata: " + datiTimerCorrente.durataMinuti + " minuti"
+        : "Nessun limite di tempo";
+    document.getElementById("contenitore-countdown-landing").classList.add("nascosto");
+    fermaCountdownLanding();
+
+    const testoSoglia = document.getElementById("testo-soglia-landing");
+    const soglia = (dati.sogliaPercentuale === undefined || dati.sogliaPercentuale === null) ? null : Number(dati.sogliaPercentuale);
+    if (!dati.avviatoTimestamp && soglia !== null) {
+      testoSoglia.textContent = "Soglia di superamento: " + soglia + "%";
+      testoSoglia.classList.remove("nascosto");
+    } else {
+      testoSoglia.classList.add("nascosto");
+    }
+  }
+
+  resettaPannelloControllo();
+
+  const testInCorsoAdesso = !!(dati.avviatoTimestamp && !dati.terminatoTimestamp);
+  TURNO_IN_CORSO = testInCorsoAdesso && !dati.pausaTimestamp;
+  TEST_TERMINATO_ADESSO = !!dati.terminatoTimestamp;
+  NUMERO_SESSIONE_CORRENTE = (dati.azzeramenti || 0) + 1;
+  document.getElementById("testo-numero-sessione").textContent = "Sessione nr. " + NUMERO_SESSIONE_CORRENTE;
+  if (testInCorsoAdesso) {
+    document.getElementById("blocco-qr-accesso").classList.add("nascosto");
+    document.getElementById("avviso-test-in-corso").classList.remove("nascosto");
+  } else {
+    document.getElementById("blocco-qr-accesso").classList.remove("nascosto");
+    document.getElementById("avviso-test-in-corso").classList.add("nascosto");
+  }
+
+  if (dati.terminatoTimestamp) {
+    document.getElementById("btn-pausa-tutti").classList.add("nascosto");
+    document.getElementById("btn-riprendi-tutti").classList.add("nascosto");
+    document.getElementById("btn-chiudi-turno").classList.add("nascosto");
+    document.getElementById("stato-pausa").classList.add("nascosto");
+    document.getElementById("stato-scaduto").classList.add("nascosto");
+    document.getElementById("scritta-pausa-grande").classList.add("nascosto");
+  } else if (dati.avviatoTimestamp) {
+    if (dati.pausaTimestamp) {
+      mostraTestInPausa();
+    } else if (TEST_HA_TIMER && calcolaSecondiRimasti(datiTimerCorrente) === 0) {
+      mostraTempoScaduto();
+    } else {
+      mostraTestAvviato();
+    }
+  }
+}
+
+aggiornaStatoDaFirestore();
+setInterval(aggiornaStatoDaFirestore, 2000);
+
+function aggiornaStatistiche() {
+  if (!ID_TEST_ATTIVO) return;
+  Promise.all([
+    getDocs(query(riferimentoRisultati(ID_TEST_ATTIVO), where("annullato", "==", false))),
+    getDocs(riferimentoPresenze(ID_TEST_ATTIVO))
+  ])
+    .then(([istantaneaRisultati, istantaneaPresenze]) => {
+      const nomiCompletati = new Set();
+      const numeroSessionePerNomeCompletato = new Map();
+      istantaneaRisultati.forEach(documento => {
+        const d = documento.data();
+        const nome = (d.nome || "").trim().toLowerCase();
+        if (nome) {
+          nomiCompletati.add(nome);
+          numeroSessionePerNomeCompletato.set(nome, typeof d.numeroSessione === "number" ? d.numeroSessione : null);
+        }
+      });
+
+      const SOGLIA_CONNESSIONE_MS = 180000;
+      const ora = Date.now();
+      const nomiConnessi = new Set();
+      const nomiSessioneAttuale = new Set();
+      let inSvolgimento = 0;
+      let inAttesa = 0;
+      let abbandonati = 0;
+      istantaneaPresenze.forEach(documento => {
+        const d = documento.data();
+        const nomeNormalizzato = (d.nome || "").trim().toLowerCase();
+        nomiSessioneAttuale.add(nomeNormalizzato);
+        const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+        if (!fresco) {
+          if (!nomiCompletati.has(nomeNormalizzato)) abbandonati++;
+          return;
+        }
+        if (["attesa", "in_corso", "bloccato", "completato"].includes(d.stato)) nomiConnessi.add(nomeNormalizzato);
+        if (d.stato === "in_corso") inSvolgimento++;
+        if (d.stato === "attesa") inAttesa++;
+      });
+      const connessi = nomiConnessi.size;
+      const completati = nomiCompletati.size;
+      // "Mancanti": totale meno chi è coperto (connesso o già
+      // consegnato) meno gli assenti. Uso una somma, non un'unione
+      // con i nomi degli assenti (che qui non abbiamo, solo il
+      // conteggio pubblico): un assente non può mai avere presenza né
+      // risultato, dato che il quiz lo blocca comunque, quindi le due
+      // parti restano sempre disgiunte davvero.
+      const copertiConnessiCompletati = new Set([...nomiConnessi, ...nomiCompletati]).size;
+      const mancanti = Math.max(NUMERO_STUDENTI_TOTALE - copertiConnessiCompletati - NUMERO_ASSENTI_TOTALE, 0);
+
+      document.getElementById("numero-connessi").textContent = connessi;
+      document.getElementById("numero-mancanti").textContent = mancanti;
+      document.getElementById("numero-attesa").textContent = inAttesa;
+      document.getElementById("numero-svolgimento").textContent = inSvolgimento;
+      document.getElementById("numero-completati").textContent = completati;
+
+      const nomiCompletatiSessioneAttuale = new Set([...nomiCompletati].filter(n => {
+        const numeroSessioneRisultato = numeroSessionePerNomeCompletato.get(n);
+        return numeroSessioneRisultato !== null
+          ? numeroSessioneRisultato === NUMERO_SESSIONE_CORRENTE
+          : nomiSessioneAttuale.has(n);
+      }));
+      const completatiSessioniPrecedenti = completati - nomiCompletatiSessioneAttuale.size;
+      const totaleRisposto = completatiSessioniPrecedenti + Math.max(nomiSessioneAttuale.size - abbandonati, 0);
+      const riquadroAndamento = document.getElementById("riquadro-andamento");
+      if (!TURNO_IN_CORSO || totaleRisposto === 0) {
+        riquadroAndamento.classList.add("nascosto");
+        document.getElementById("segnale-neutro").classList.add("nascosto");
+      } else {
+        riquadroAndamento.classList.remove("nascosto");
+        document.getElementById("testo-andamento").textContent = completati + " su " + totaleRisposto + " hanno consegnato";
+        const percentuale = Math.round((completati / totaleRisposto) * 100);
+        document.getElementById("barra-andamento-interna").style.width = percentuale + "%";
+        const personeAncoraDaConsegnare = Math.max(totaleRisposto - completati, 0);
+        document.getElementById("sottotesto-andamento").textContent =
+          personeAncoraDaConsegnare === 0
+            ? "Tutti hanno consegnato"
+            : (personeAncoraDaConsegnare === 1 ? "1 persona deve ancora consegnare" : personeAncoraDaConsegnare + " persone devono ancora consegnare");
+
+        const segnaleNeutro = document.getElementById("segnale-neutro");
+        if (abbandonati > 0) {
+          segnaleNeutro.textContent = "🔸 " + abbandonati;
+          segnaleNeutro.classList.remove("nascosto");
+        } else {
+          segnaleNeutro.classList.add("nascosto");
+        }
+      }
+
+      const msDaAvvio = datiTimerCorrente.avviatoTimestamp ? (Date.now() - Number(datiTimerCorrente.avviatoTimestamp)) : 0;
+      if (TURNO_IN_CORSO && msDaAvvio > 15000 && inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0 &&
+          (nomiCompletatiSessioneAttuale.size + abbandonati) > 0 && !resetAutomaticoProgrammato) {
+        resetAutomaticoProgrammato = true;
+        const idTestAlMomento = ID_TEST_ATTIVO;
+        terminaEAspettaPrimaDiAzzerare(idTestAlMomento).finally(() => {
+          resetAutomaticoProgrammato = false;
+        });
+      }
+
+      if (TEST_TERMINATO_ADESSO && !mostrandoRiepilogoSessione &&
+          inSvolgimento === 0 && nomiSessioneAttuale.size > 0) {
+        candidatoRiepilogoSessione = {
+          numeroSessione: NUMERO_SESSIONE_CORRENTE,
+          partecipanti: nomiSessioneAttuale.size,
+          completati: nomiCompletatiSessioneAttuale.size,
+          abbandoni: abbandonati,
+          mancantiGenerali: mancanti
+        };
+        return;
+      }
+    })
+    .catch(() => {});
+}
+
+function catturaEMostraRiepilogoSessione(riepilogo) {
+  mostrandoRiepilogoSessione = true;
+  if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
+  fermaCountdownLanding();
+  fermaBattitoLocandina();
+
+  setDoc(doc(db, "test", ID_TEST_ATTIVO, "sessioni", String(riepilogo.numeroSessione)), {
+    numeroSessione: riepilogo.numeroSessione,
+    partecipanti: riepilogo.partecipanti,
+    completati: riepilogo.completati,
+    abbandoni: riepilogo.abbandoni,
+    mancantiGenerali: riepilogo.mancantiGenerali,
+    timestamp: new Date().toLocaleString("it-IT")
+  }).catch(() => {});
+
+  document.getElementById("blocco-caricamento").classList.add("nascosto");
+  document.getElementById("blocco-nessun-test").classList.add("nascosto");
+  document.getElementById("blocco-test-attivo").classList.add("nascosto");
+  document.getElementById("pannello-controllo").classList.remove("visibile");
+  document.getElementById("titolo-test-contenitore").classList.add("nascosto");
+  document.getElementById("corpo").classList.add("a-colonna-singola");
+
+  document.getElementById("riepilogo-numero-sessione").textContent = riepilogo.numeroSessione;
+  document.getElementById("riepilogo-partecipanti").textContent = riepilogo.partecipanti;
+  document.getElementById("riepilogo-completati").textContent = riepilogo.completati;
+  document.getElementById("riepilogo-abbandoni").textContent = riepilogo.abbandoni;
+  document.getElementById("riepilogo-mancanti").textContent = riepilogo.mancantiGenerali;
+
+  document.getElementById("blocco-riepilogo-sessione").classList.remove("nascosto");
+}
+
+document.getElementById("btn-nuova-sessione").addEventListener("click", () => {
+  location.reload();
+});
+
+document.getElementById("btn-avvia-tutti").addEventListener("click", () => {
+  if (!confirm("Avviare il test per tutti gli allievi attualmente in attesa? L'operazione non può essere annullata.")) return;
+
+  azioneInCorso = true;
+  const bottone = document.getElementById("btn-avvia-tutti");
+  bottone.disabled = true;
+  bottone.textContent = "Avvio in corso...";
+
+  setDoc(riferimentoTest(ID_TEST_ATTIVO), { avviatoTimestamp: Date.now() }, { merge: true })
+  .then(() => {
+    mostraTestAvviato();
+    azioneInCorso = false;
+  })
+  .catch((errore) => {
+    registraAvvisoClient("AVVIA TEST", errore && errore.message ? errore.message : String(errore));
+    mostraBannerConnessione(true);
+    setTimeout(() => mostraBannerConnessione(false), 6000);
+    bottone.disabled = false;
+    bottone.textContent = "Avvia il test per tutti";
+    azioneInCorso = false;
+  });
+});
+
+function mostraTestAvviato() {
+  const bottoneAvvia = document.getElementById("btn-avvia-tutti");
+  bottoneAvvia.disabled = true;
+  bottoneAvvia.textContent = "Test avviato";
+  document.getElementById("stato-avvio").classList.remove("nascosto");
+  document.getElementById("btn-chiudi-turno").classList.remove("nascosto");
+  document.getElementById("btn-pausa-tutti").classList.remove("nascosto");
+  document.getElementById("btn-riprendi-tutti").classList.add("nascosto");
+  document.getElementById("stato-pausa").classList.add("nascosto");
+  document.getElementById("scritta-pausa-grande").classList.add("nascosto");
+}
+
+let resetAutomaticoProgrammato = false;
+
+function terminaTestFirestore(idTest) {
+  return setDoc(riferimentoTest(idTest), { terminatoTimestamp: Date.now() }, { merge: true });
+}
+
+async function contaInSvolgimentoFirestore(idTest) {
+  const istantanea = await getDocs(riferimentoPresenze(idTest));
+  const ora = Date.now();
+  const SOGLIA_CONNESSIONE_MS = 180000;
+  let inSvolgimento = 0;
+  istantanea.forEach(documento => {
+    const dati = documento.data();
+    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
+    if (fresco && dati.stato === "in_corso") inSvolgimento++;
+  });
+  return inSvolgimento;
+}
+
+async function azzeraTurnoFirestore(idTest) {
+  await setDoc(riferimentoTest(idTest), {
+    avviatoTimestamp: null,
+    pausaTimestamp: null,
+    terminatoTimestamp: null,
+    totalePausaMs: 0,
+    secondiRimastiAllaPausa: null,
+    azzeramenti: increment(1)
+  }, { merge: true });
+
+  const istantanea = await getDocs(riferimentoPresenze(idTest));
+  if (!istantanea.empty) {
+    const batch = writeBatch(db);
+    istantanea.forEach(documento => batch.delete(documento.ref));
+    await batch.commit();
+  }
+}
+
+function terminaEAspettaPrimaDiAzzerare(idTest) {
+  const massimoControlli = 36;
+  return terminaTestFirestore(idTest).then(() => new Promise(risolvi => {
+    let controlli = 0;
+    function controllaEAzzera() {
+      contaInSvolgimentoFirestore(idTest)
+        .then(inSvolgimento => {
+          controlli++;
+          if (inSvolgimento > 0 && controlli < massimoControlli) {
+            setTimeout(controllaEAzzera, 5000);
+          } else {
+            azzeraTurnoFirestore(idTest).catch(() => {}).finally(() => risolvi());
+          }
+        })
+        .catch(() => {
+          controlli++;
+          if (controlli < massimoControlli) {
+            setTimeout(controllaEAzzera, 5000);
+          } else {
+            azzeraTurnoFirestore(idTest).catch(() => {}).finally(() => risolvi());
+          }
+        });
+    }
+    setTimeout(controllaEAzzera, 5000);
+  }));
+}
+
+function mostraTempoScaduto() {
+  const bottoneAvvia = document.getElementById("btn-avvia-tutti");
+  bottoneAvvia.disabled = true;
+  bottoneAvvia.textContent = "Test avviato";
+  document.getElementById("stato-avvio").classList.add("nascosto");
+  document.getElementById("stato-pausa").classList.add("nascosto");
+  document.getElementById("btn-pausa-tutti").classList.add("nascosto");
+  document.getElementById("btn-riprendi-tutti").classList.add("nascosto");
+  document.getElementById("btn-chiudi-turno").classList.add("nascosto");
+  document.getElementById("stato-scaduto").classList.remove("nascosto");
+  document.getElementById("scritta-pausa-grande").classList.add("nascosto");
+
+  if (!resetAutomaticoProgrammato) {
+    resetAutomaticoProgrammato = true;
+    const idTestAlMomento = ID_TEST_ATTIVO;
+    terminaEAspettaPrimaDiAzzerare(idTestAlMomento).finally(() => {
+      resetAutomaticoProgrammato = false;
+    });
+  }
+}
+
+function mostraTestInPausa() {
+  const bottoneAvvia = document.getElementById("btn-avvia-tutti");
+  bottoneAvvia.disabled = true;
+  bottoneAvvia.textContent = "Test avviato";
+  document.getElementById("stato-avvio").classList.add("nascosto");
+  document.getElementById("btn-chiudi-turno").classList.remove("nascosto");
+  document.getElementById("btn-pausa-tutti").classList.add("nascosto");
+  document.getElementById("btn-riprendi-tutti").classList.remove("nascosto");
+  document.getElementById("stato-pausa").classList.remove("nascosto");
+  document.getElementById("scritta-pausa-grande").classList.remove("nascosto");
+}
+
+document.getElementById("btn-pausa-tutti").addEventListener("click", () => {
+  if (!confirm("Mettere in pausa il test per tutti? Il timer si ferma per chi sta ancora rispondendo, che resta bloccato su una schermata di attesa finché non clicchi Riprendi.")) return;
+
+  azioneInCorso = true;
+  const bottone = document.getElementById("btn-pausa-tutti");
+  bottone.disabled = true;
+  bottone.textContent = "Pausa in corso...";
+
+  const secondiRimastiAllaPausa = calcolaSecondiRimasti(datiTimerCorrente);
+
+  setDoc(riferimentoTest(ID_TEST_ATTIVO), {
+    pausaTimestamp: Date.now(),
+    secondiRimastiAllaPausa: secondiRimastiAllaPausa
+  }, { merge: true })
+  .then(() => {
+    if (datiTimerCorrente) {
+      datiTimerCorrente.pausaTimestamp = Date.now();
+    }
+    aggiornaVisualeCountdownLanding();
+    mostraTestInPausa();
+    bottone.disabled = false;
+    bottone.textContent = "Pausa timer per tutti";
+    azioneInCorso = false;
+  })
+  .catch((errore) => {
+    registraAvvisoClient("PAUSA TEST", errore && errore.message ? errore.message : String(errore));
+    mostraBannerConnessione(true);
+    setTimeout(() => mostraBannerConnessione(false), 6000);
+    bottone.disabled = false;
+    bottone.textContent = "Pausa timer per tutti";
+    azioneInCorso = false;
+  });
+});
+
+document.getElementById("btn-riprendi-tutti").addEventListener("click", () => {
+  if (!confirm("Riprendere il test per tutti? Gli allievi ripartono esattamente con i minuti che gli restavano al momento della pausa.")) return;
+
+  azioneInCorso = true;
+  const bottone = document.getElementById("btn-riprendi-tutti");
+  bottone.disabled = true;
+  bottone.textContent = "Ripresa in corso...";
+
+  const nuovoTotalePausaMs = Number((datiTimerCorrente && datiTimerCorrente.totalePausaMs) || 0) +
+    (datiTimerCorrente && datiTimerCorrente.pausaTimestamp ? (Date.now() - Number(datiTimerCorrente.pausaTimestamp)) : 0);
+
+  setDoc(riferimentoTest(ID_TEST_ATTIVO), { pausaTimestamp: null, totalePausaMs: nuovoTotalePausaMs }, { merge: true })
+  .then(() => {
+    if (datiTimerCorrente) {
+      datiTimerCorrente.totalePausaMs = nuovoTotalePausaMs;
+      datiTimerCorrente.pausaTimestamp = null;
+    }
+    aggiornaVisualeCountdownLanding();
+    mostraTestAvviato();
+    bottone.disabled = false;
+    bottone.textContent = "Riprendi il test per tutti";
+    azioneInCorso = false;
+  })
+  .catch((errore) => {
+    registraAvvisoClient("RIPRENDI TEST", errore && errore.message ? errore.message : String(errore));
+    mostraBannerConnessione(true);
+    setTimeout(() => mostraBannerConnessione(false), 6000);
+    bottone.disabled = false;
+    bottone.textContent = "Riprendi il test per tutti";
+    azioneInCorso = false;
+  });
+});
+
+document.getElementById("btn-chiudi-turno").addEventListener("click", () => {
+  const connessi = document.getElementById("numero-connessi").textContent;
+  const mancanti = document.getElementById("numero-mancanti").textContent;
+  const completati = document.getElementById("numero-completati").textContent;
+
+  const messaggio =
+    "Chiudere il turno e prepararne uno nuovo?\n\n" +
+    "Al momento risultano " + connessi + " connessi, " + mancanti + " mancanti, " + completati + " completati.\n\n" +
+    "Chi sta ancora rispondendo verrà inviato automaticamente con le risposte date fino a questo momento. " +
+    "I risultati già raccolti restano salvati, la sala d'attesa si svuota e il pulsante \"Avvia il test per tutti\" tornerà disponibile. " +
+    "L'operazione non può essere annullata.";
+  if (!confirm(messaggio)) return;
+
+  azioneInCorso = true;
+  const bottone = document.getElementById("btn-chiudi-turno");
+  bottone.disabled = true;
+  bottone.textContent = "Chiusura in corso...";
+  fermaCountdownLanding();
+
+  const idTestAlMomento = ID_TEST_ATTIVO;
+  terminaEAspettaPrimaDiAzzerare(idTestAlMomento)
+    .then(() => {
+      resettaPannelloControllo();
+      aggiornaStatistiche();
+      azioneInCorso = false;
+    });
+});
+
+const iconaEspandi = '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
+const iconaRiduci = '<path d="M9 3v3a2 2 0 0 1-2 2H4"></path><path d="M15 3v3a2 2 0 0 0 2 2h3"></path><path d="M9 21v-3a2 2 0 0 0-2-2H4"></path><path d="M15 21v-3a2 2 0 0 1 2-2h3"></path>';
+
+document.getElementById("btn-schermo-intero").addEventListener("click", () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+});
+
+document.addEventListener("fullscreenchange", () => {
+  document.getElementById("icona-schermo-intero").innerHTML =
+    document.fullscreenElement ? iconaRiduci : iconaEspandi;
+});
+</script>
+
+</body>
+</html>
