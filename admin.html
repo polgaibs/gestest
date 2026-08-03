@@ -1,14 +1,9 @@
 <!-- ============================================================
-     PANNELLO ADMIN — admin.html (VERSIONE 3, con backend)
-     Rispetto alla versione precedente: ogni test è diviso in due
-     documenti su Firestore. "test/{id}" ha solo i campi pubblici
-     (nome, durata, soglia, stato del turno), leggibili da chiunque
-     senza login, come serve a locandina/live/quiz per sapere cosa
-     mostrare. "test/{id}/privato/dati" ha PIN, domande (con le
-     risposte corrette) ed elenco allievi completo: leggibile SOLO
-     da qui, con login Google da amministratore autorizzato. Il quiz
-     non legge più questo secondo documento direttamente: passa
-     dalle Cloud Functions (cercaAllievi, iniziaTest, inviaRisultato).
+     PANNELLO ADMIN — admin.html (VERSIONE 2, tutto su Firestore)
+     Pagina statica, nessun Apps Script, nessun foglio Google.
+     Stessa interfaccia e stesso comportamento della versione
+     precedente, vista da chi la usa in aula. Login con account
+     Google al posto del login integrato di Apps Script.
      ============================================================ -->
 <!DOCTYPE html>
 <html>
@@ -287,6 +282,7 @@
     margin-top: 10px;
   }
 
+  /* ---- Schermata di login, nuova in questa versione ---- */
   #schermata-login {
     max-width: 420px;
     margin: 12vh auto 0;
@@ -324,10 +320,14 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V3 REV. 3</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V2 REV. 26</div>
 
 <div id="messaggio-globale"></div>
 
+<!-- ============================================================
+     SCHERMATA DI LOGIN, visibile solo prima dell'accesso o se
+     l'account con cui si accede non è tra quelli autorizzati.
+     ============================================================ -->
 <div id="schermata-login" class="nascosto">
   <div class="scheda">
     <h1 style="margin-top:0;">Pannello Admin</h1>
@@ -338,6 +338,10 @@
   </div>
 </div>
 
+<!-- ============================================================
+     CONTENUTO PRINCIPALE, visibile solo dopo login con un
+     account autorizzato.
+     ============================================================ -->
 <div id="contenuto-principale" class="nascosto">
 
 <h1>Pannello Admin — Test Scuola Pol.G.A.I. Brescia</h1>
@@ -465,23 +469,20 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  collection, query, where, writeBatch, increment
+  getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
+  collection, query, where, writeBatch, serverTimestamp, increment
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
 // ============================================================
-// FIREBASE — progetto NUOVO (gestest-v2-fb16b), separato da
-// quello di produzione. Stesso progetto usato anche da locandina,
-// live e dalle Cloud Functions.
+// FIREBASE, stesso progetto usato da locandina e quiz.
 // ============================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyC7sd8dmrLrU5D-wkBB47zGkfdSxDU6Qcc",
-  authDomain: "gestest-v2-fb16b.firebaseapp.com",
-  projectId: "gestest-v2-fb16b",
-  storageBucket: "gestest-v2-fb16b.firebasestorage.app",
-  messagingSenderId: "599095343445",
-  appId: "1:599095343445:web:9d350823aceb9fd43197dc",
-  measurementId: "G-2VB4721H78"
+  apiKey: "AIzaSyAZaljofnVGilyzRMVjqtTuq7zlFGoJUMQ",
+  authDomain: "gestest-1d7a3.firebaseapp.com",
+  projectId: "gestest-1d7a3",
+  storageBucket: "gestest-1d7a3.firebasestorage.app",
+  messagingSenderId: "653566650662",
+  appId: "1:653566650662:web:4c8eff3675d7dbf18df9e7"
 };
 const appFirebase = initializeApp(firebaseConfig);
 const db = getFirestore(appFirebase);
@@ -489,16 +490,14 @@ const auth = getAuth(appFirebase);
 const providerGoogle = new GoogleAuthProvider();
 
 function riferimentoTest(idTest) { return doc(db, "test", idTest); }
-// Documento privato: PIN, domande con risposte corrette, elenco
-// allievi completo, elenco assenti completo. Solo admin.html vi
-// accede direttamente (le regole lo impongono); il quiz non lo
-// tocca mai, passa dalle Cloud Functions.
-function riferimentoTestPrivato(idTest) { return doc(db, "test", idTest, "privato", "dati"); }
 function riferimentoPresenze(idTest) { return collection(db, "test", idTest, "presenze"); }
 function riferimentoRisultati(idTest) { return collection(db, "test", idTest, "risultati"); }
 function riferimentoSessioni(idTest) { return collection(db, "test", idTest, "sessioni"); }
 function riferimentoStatoAttivo() { return doc(db, "stato", "attivo"); }
 
+// Normalizzazione del nome allievo, identica a quella usata dal
+// quiz, per ottenere sempre la stessa chiave di documento a
+// prescindere da maiuscole, accenti e spazi doppi.
 function normalizza(nome) {
   return (nome || "").toString().trim().toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -527,6 +526,10 @@ onAuthStateChanged(auth, async (utente) => {
     return;
   }
 
+  // Verifico che l'email sia tra quelle autorizzate, leggendo il
+  // documento admin/{email}: se non esiste, la regola Firestore
+  // rifiuterebbe comunque ogni scrittura, ma qui do subito un
+  // messaggio chiaro invece di far scoprire l'errore poco alla volta.
   try {
     const istantaneaAdmin = await getDoc(doc(db, "admin", utente.email));
     if (!istantaneaAdmin.exists()) {
@@ -555,19 +558,24 @@ onAuthStateChanged(auth, async (utente) => {
 });
 
 // ============================================================
-// LIVELLO DATI SU FIRESTORE
+// LIVELLO DATI SU FIRESTORE (sostituisce Codice.gs)
 // ============================================================
 
-// Elenco di tutti i test. Per ciascuno legge anche il documento
-// privato (PIN, domande, allievi, assenti): admin.html è l'unico
-// posto pubblico autorizzato a farlo, con login.
+// Elenco di tutti i test, con conteggi già calcolati (domande,
+// allievi, completati). Presenza e stato del turno vengono
+// aggiunti subito dopo da arricchisciConStatoLive.
 async function elencoTest() {
   const istantanea = await getDocs(collection(db, "test"));
   const risultato = [];
   for (const documento of istantanea.docs) {
     const dati = documento.data();
-    const istantaneaPrivato = await getDoc(riferimentoTestPrivato(documento.id));
-    const privato = istantaneaPrivato.exists() ? istantaneaPrivato.data() : { pin: "", domande: [], studenti: [], assenti: [] };
+
+    // I documenti scritti dalla versione vecchia (foglio Google)
+    // contengono solo i campi di stato, mai "domande": sono residui
+    // di avvio/pausa/chiusura del turno, non test veri creati da
+    // questo pannello. Li salto, restano intoccati per non disturbare
+    // la versione vecchia che li usa ancora.
+    if (!Array.isArray(dati.domande)) continue;
 
     const istantaneaRisultati = await getDocs(
       query(riferimentoRisultati(documento.id), where("annullato", "==", false))
@@ -585,10 +593,10 @@ async function elencoTest() {
     risultato.push({
       id: documento.id,
       nome: dati.nome || "",
-      pin: privato.pin || "",
+      pin: dati.pin || "",
       attivo: !!dati.attivo,
-      numDomande: (privato.domande || []).length,
-      numStudenti: (privato.studenti || []).length,
+      numDomande: (dati.domande || []).length,
+      numStudenti: (dati.studenti || []).length,
       dataCreazione: dati.dataCreazione || "",
       durataMinuti: (dati.durataMinuti === undefined || dati.durataMinuti === null) ? 20 : Number(dati.durataMinuti),
       sogliaPercentuale: soglia,
@@ -600,7 +608,7 @@ async function elencoTest() {
       terminatoTimestamp: dati.terminatoTimestamp || null,
       totalePausaMs: dati.totalePausaMs || 0,
       locandinaUltimoAggiornamento: dati.locandinaUltimoAggiornamento || null,
-      assenti: privato.assenti || []
+      assenti: dati.assenti || []
     });
   }
   return risultato;
@@ -610,42 +618,32 @@ function nuovoIdTest() {
   return "T" + Math.random().toString(36).substring(2, 10);
 }
 
-// Crea un test: campi pubblici e privati in due scritture separate,
-// così ciascun documento nasce già con le regole giuste applicate.
 async function creaTest(nome, pin, durataMinuti, domande, studenti, sogliaPercentuale) {
   const id = nuovoIdTest();
   await setDoc(riferimentoTest(id), {
-    nome, durataMinuti,
+    nome, pin, durataMinuti, domande, studenti,
     sogliaPercentuale: sogliaPercentuale ?? null,
     attivo: false,
-    // Solo i CONTEGGI sono pubblici, mai i nomi: servono a locandina
-    // e live per mostrare "X assenti" e calcolare "mancanti" senza
-    // dover leggere il documento privato, che loro non possono
-    // toccare.
-    numeroAssenti: 0,
-    numeroStudenti: studenti.length,
     dataCreazione: new Date().toLocaleString("it-IT"),
     azzeramenti: 0,
     avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
     totalePausaMs: 0, secondiRimastiAllaPausa: null
   });
-  await setDoc(riferimentoTestPrivato(id), {
-    pin, domande, studenti, assenti: []
-  });
   return id;
 }
 
 async function aggiornaTest(id, nome, pin, durataMinuti, domande, studenti, sogliaPercentuale) {
-  const datiPubblici = { nome, durataMinuti, sogliaPercentuale: sogliaPercentuale ?? null };
-  if (studenti) datiPubblici.numeroStudenti = studenti.length;
-  await updateDoc(riferimentoTest(id), datiPubblici);
-  const datiPrivato = { pin };
-  if (domande) datiPrivato.domande = domande;
-  if (studenti) datiPrivato.studenti = studenti;
-  await setDoc(riferimentoTestPrivato(id), datiPrivato, { merge: true });
+  const dati = { nome, pin, durataMinuti, sogliaPercentuale: sogliaPercentuale ?? null };
+  if (domande) dati.domande = domande;
+  if (studenti) dati.studenti = studenti;
+  await updateDoc(riferimentoTest(id), dati);
   return true;
 }
 
+// Attiva questo test (visibile agli allievi) e disattiva tutti gli
+// altri, aggiornando anche il puntatore stato/attivo che locandina
+// e quiz leggono per sapere quale test caricare senza dover
+// elencare l'intera collezione.
 async function attivaTest(id) {
   const istantanea = await getDocs(collection(db, "test"));
   const batch = writeBatch(db);
@@ -679,6 +677,10 @@ async function disattivaTutti() {
   return true;
 }
 
+// Cancella un test e tutto quello che lo riguarda: presenze,
+// risultati, e le voci di log che lo citano. Le sotto-collezioni
+// vanno svuotate a mano, Firestore non le cancella da sole insieme
+// al documento padre.
 async function svuotaSottocollezione(riferimentoCollezione) {
   const istantanea = await getDocs(riferimentoCollezione);
   if (istantanea.empty) return;
@@ -691,7 +693,6 @@ async function eliminaTest(id) {
   await svuotaSottocollezione(riferimentoPresenze(id));
   await svuotaSottocollezione(riferimentoRisultati(id));
   await svuotaSottocollezione(riferimentoSessioni(id));
-  await deleteDoc(riferimentoTestPrivato(id));
 
   const istantaneaLog = await getDocs(query(collection(db, "log"), where("idTest", "==", id)));
   if (!istantaneaLog.empty) {
@@ -702,6 +703,7 @@ async function eliminaTest(id) {
 
   await deleteDoc(riferimentoTest(id));
 
+  // Se era il test attivo, tolgo anche il puntatore.
   const puntatore = await getDoc(riferimentoStatoAttivo());
   if (puntatore.exists() && puntatore.data().idTest === id) {
     await setDoc(riferimentoStatoAttivo(), { idTest: null });
@@ -710,21 +712,17 @@ async function eliminaTest(id) {
 }
 
 async function getDettaglioTest(id) {
-  const [istantanea, istantaneaPrivato] = await Promise.all([
-    getDoc(riferimentoTest(id)),
-    getDoc(riferimentoTestPrivato(id))
-  ]);
+  const istantanea = await getDoc(riferimentoTest(id));
   if (!istantanea.exists()) return null;
   const dati = istantanea.data();
-  const privato = istantaneaPrivato.exists() ? istantaneaPrivato.data() : {};
   return {
     id: istantanea.id,
     nome: dati.nome || "",
-    pin: privato.pin || "",
+    pin: dati.pin || "",
     durataMinuti: (dati.durataMinuti === undefined || dati.durataMinuti === null) ? 20 : Number(dati.durataMinuti),
     sogliaPercentuale: (dati.sogliaPercentuale === undefined || dati.sogliaPercentuale === null) ? null : Number(dati.sogliaPercentuale),
-    domande: privato.domande || [],
-    studenti: privato.studenti || []
+    domande: dati.domande || [],
+    studenti: dati.studenti || []
   };
 }
 
@@ -734,6 +732,8 @@ async function duplicaTest(id) {
   return creaTest(originale.nome + " (copia)", originale.pin, originale.durataMinuti, originale.domande, originale.studenti, originale.sogliaPercentuale);
 }
 
+// Elenco di chi ha già completato il test, con data e numero di
+// tentativi totali (compresi quelli annullati), ordinato per nome.
 async function elencoCompletati(idTest) {
   const istantanea = await getDocs(riferimentoRisultati(idTest));
   const perNome = {};
@@ -749,7 +749,7 @@ async function elencoCompletati(idTest) {
   const elenco = [];
   Object.values(perNome).forEach(voce => {
     const nonAnnullato = voce.tentativi.find(t => !t.annullato);
-    if (!nonAnnullato) return;
+    if (!nonAnnullato) return; // tutti i tentativi sono stati annullati, non ha un esito valido corrente
     elenco.push({
       nome: voce.nome,
       dataOra: nonAnnullato.timestamp || "",
@@ -762,6 +762,10 @@ async function elencoCompletati(idTest) {
   return elenco;
 }
 
+// Marca come annullato il risultato attualmente valido di un
+// allievo, così il quiz gli permette di rifare il test: la nuova
+// consegna creerà un documento nuovo con un numero di tentativo
+// più alto, senza toccare la traccia di quello precedente.
 async function permettiNuovoTentativo(idTest, nomeAllievo) {
   const istantanea = await getDocs(
     query(riferimentoRisultati(idTest), where("nome", "==", nomeAllievo), where("annullato", "==", false))
@@ -782,6 +786,9 @@ async function permettiNuoviTentativi(idTest, nomiArray) {
   return risultati;
 }
 
+// Conta gli allievi con presenza fresca (segnale ricevuto negli
+// ultimi 70 secondi) ancora "in_corso", per sapere quando è sicuro
+// azzerare il turno dopo una chiusura manuale.
 async function contaInSvolgimentoFirestore(idTest) {
   const istantanea = await getDocs(riferimentoPresenze(idTest));
   const ora = Date.now();
@@ -804,6 +811,10 @@ async function azzeraTurnoFirestore(idTest) {
   await svuotaSottocollezione(riferimentoPresenze(idTest));
 }
 
+// Legge lo stato vivo (connessi, in svolgimento) dalle presenze,
+// esattamente come faceva arricchisciConFirestore nella versione
+// precedente, ora usando gli stessi dati del test già letti sopra
+// invece di un secondo giro sul foglio Google.
 async function arricchisciConStatoLive(test) {
   try {
     const istantaneaPresenze = await getDocs(riferimentoPresenze(test.id));
@@ -831,6 +842,10 @@ async function arricchisciConStatoLive(test) {
   return test;
 }
 
+// Esporta i risultati di un test in Excel, con le stesse colonne e
+// gli stessi colori (verde risposta esatta, rosso risposta errata)
+// della versione precedente. SheetJS non gestisce i colori, quindi
+// qui uso ExcelJS solo per questo export.
 const COLORE_CORRETTA = "FFB6E3B6";
 const COLORE_SBAGLIATA = "FFF4B6B6";
 const COLORE_INTESTAZIONE = "FF1D3557";
@@ -843,18 +858,17 @@ function formattaDurataFuoriFocus(ms) {
 }
 
 async function scaricaRisultatiExcel(idTest, nomeTest) {
-  const [istantaneaRisultati, istantaneaTest, istantaneaPrivato, istantaneaSessioni] = await Promise.all([
+  const [istantaneaRisultati, istantaneaTest, istantaneaSessioni] = await Promise.all([
     getDocs(riferimentoRisultati(idTest)),
     getDoc(riferimentoTest(idTest)),
-    getDoc(riferimentoTestPrivato(idTest)),
     getDocs(riferimentoSessioni(idTest))
   ]);
   if (istantaneaRisultati.empty) return { esito: "vuoto" };
 
   const datiTest = istantaneaTest.exists() ? istantaneaTest.data() : {};
-  const privato = istantaneaPrivato.exists() ? istantaneaPrivato.data() : {};
   const soglia = (datiTest.sogliaPercentuale === undefined || datiTest.sogliaPercentuale === null) ? null : Number(datiTest.sogliaPercentuale);
 
+  // Solo i risultati non annullati, ordinati per data di invio.
   const righe = istantaneaRisultati.docs
     .map(documento => documento.data())
     .filter(r => !r.annullato)
@@ -868,6 +882,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
 
   const cartella = new ExcelJS.Workbook();
 
+  // ---- Foglio 1: Riepilogo test, sempre il primo che si vede aprendo il file ----
   const foglioRiepilogo = cartella.addWorksheet("Riepilogo test");
   foglioRiepilogo.columns = [{ width: 26 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 20 }];
 
@@ -886,9 +901,9 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
 
   rigaTitoloRiepilogo("Struttura del test");
   rigaDatoRiepilogo("Nome test", datiTest.nome || nomeTest);
-  rigaDatoRiepilogo("Numero di domande", (privato.domande || []).length);
-  rigaDatoRiepilogo("Allievi in elenco", (privato.studenti || []).length);
-  rigaDatoRiepilogo("Assenti impostati ora", (privato.assenti || []).length);
+  rigaDatoRiepilogo("Numero di domande", (datiTest.domande || []).length);
+  rigaDatoRiepilogo("Allievi in elenco", (datiTest.studenti || []).length);
+  rigaDatoRiepilogo("Assenti impostati ora", (datiTest.assenti || []).length);
   rigaDatoRiepilogo("Durata", datiTest.durataMinuti > 0 ? datiTest.durataMinuti + " minuti" : "Nessun limite di tempo");
   rigaDatoRiepilogo("Soglia di superamento", soglia !== null ? soglia + "%" : "Nessuna soglia impostata");
   rigaDatoRiepilogo("Sessioni concluse finora", sessioni.length);
@@ -906,6 +921,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
     foglioRiepilogo.addRow(["Nessuna sessione ancora conclusa su questo test."]);
   }
 
+  // ---- Foglio 2: Risultati di ogni allievo ----
   const foglio = cartella.addWorksheet("Risultati");
 
   const intestazione = ["Data invio", "Cognome e Nome", "Sessione", "Punteggio", "Percentuale", "Scaduto per tempo", "Uscite dal focus", "Tempo fuori focus"];
@@ -923,7 +939,7 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
     const rigaValori = [
       r.timestamp || "", r.nome || "", r.numeroSessione || "",
       r.punteggio + " di " + r.totaleDomande,
-      percentuale !== null ? percentuale / 100 : "",
+      percentuale !== null ? Math.round(percentuale) + "%" + (soglia !== null ? (superato ? " ✅" : " ❌") : "") : "",
       r.scadutoPerTempo || "NO", usciteFocus, formattaDurataFuoriFocus(r.tempoFuoriFocusMs || 0)
     ];
     (r.risposte || []).forEach(risposta => {
@@ -931,7 +947,6 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
       rigaValori.push(risposta.corretta === "SI" ? testoRisposta + " (Corretto)" : testoRisposta + " (Errata)");
     });
     const rigaAggiunta = foglio.addRow(rigaValori);
-    if (percentuale !== null) rigaAggiunta.getCell(5).numFmt = "0%";
     if (soglia !== null && superato !== null) {
       rigaAggiunta.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: superato ? COLORE_CORRETTA : COLORE_SBAGLIATA } };
       rigaAggiunta.getCell(5).font = { bold: true };
@@ -966,7 +981,9 @@ async function scaricaRisultatiExcel(idTest, nomeTest) {
 }
 
 // ============================================================
-// INTERFACCIA (invariata rispetto alla versione precedente)
+// DA QUI IN POI: STESSA INTERFACCIA DELLA VERSIONE PRECEDENTE,
+// con le chiamate a google.script.run sostituite dalle funzioni
+// Firestore definite sopra.
 // ============================================================
 
 function mostraMessaggio(testo, tipo) {
@@ -1136,6 +1153,10 @@ function aggiungiGruppoSessione(cellaAzioni, test) {
 function aggiungiGruppoConfigurazione(cellaAzioni, test) {
   const colConfigurazione = creaColonnaAzioni(cellaAzioni, "Configurazione test");
 
+  // Il pulsante per attivare un test deve stare qui, nell'elenco di
+  // tutti i test: è l'unico posto da cui puoi scegliere QUALE test
+  // diventa quello attivo. Sul test già attivo non serve (si
+  // disattiva dalla tabella "Test attivo" qui sopra).
   if (!test.attivo) {
     const btnAttiva = document.createElement("button");
     btnAttiva.textContent = "Attiva";
@@ -1208,6 +1229,7 @@ function mostraElenco(elenco) {
     datiTimerPerTest[test.id] = { durataMinuti: test.durataMinuti, avviatoTimestamp: test.avviatoTimestamp, pausaTimestamp: test.pausaTimestamp, totalePausaMs: test.totalePausaMs };
   });
 
+  // ---- Tabella "Test attivo": al massimo un test, quello in corso d'uso in aula adesso ----
   const testAttivo = elenco.find(t => t.attivo);
   const tabellaTestAttivo = document.getElementById("tabella-test-attivo");
   const messaggioNessunAttivo = document.getElementById("nessun-test-attivo-messaggio");
@@ -1233,6 +1255,7 @@ function mostraElenco(elenco) {
     corpoAttivo.appendChild(riga);
   }
 
+  // ---- Tabella "Test salvati": l'archivio completo ----
   if (elenco.length === 0) {
     document.getElementById("nessun-test").classList.remove("nascosto");
     document.getElementById("tabella-test").classList.add("nascosto");
@@ -1256,6 +1279,10 @@ function mostraElenco(elenco) {
   });
 }
 
+// La locandina è l'unica pagina che chiude ufficialmente il turno
+// allo scadere del tempo: se non risulta aperta (nessun battito
+// recente) mentre un test a tempo è in corso e non in pausa, il
+// turno non si chiuderà da solo.
 function avvisoLocandinaMancanteHtml(test) {
   if (!test.attivo || !test.inCorso || test.inPausa || !test.durataMinuti) return "";
   const ultimoBattito = test.locandinaUltimoAggiornamento;
@@ -1409,6 +1436,10 @@ function avviaPannelloNuovoTentativo(id, nomeTest) {
     const dati = istantaneaTest.exists() ? istantaneaTest.data() : {};
     const soglia = (dati.sogliaPercentuale === undefined || dati.sogliaPercentuale === null) ? null : Number(dati.sogliaPercentuale);
 
+    // Chi non ha superato la soglia va in cima, evidenziato: sono
+    // quelli su cui probabilmente vuoi decidere subito se concedere
+    // un nuovo tentativo. Se il test non ha una soglia impostata,
+    // resta tutto in ordine alfabetico come prima, nessuna distinzione.
     allievi.forEach(a => {
       a.percentuale = (a.punteggio !== null && a.totaleDomande) ? (a.punteggio / a.totaleDomande) * 100 : null;
       a.nonSuperato = soglia !== null && a.percentuale !== null && a.percentuale < soglia;
@@ -1470,8 +1501,12 @@ document.getElementById("btn-conferma-tentativo").addEventListener("click", () =
 });
 
 // ============================================================
-// GESTISCI ASSENTI — legge e scrive sul documento privato,
-// non più su quello pubblico.
+// GESTISCI ASSENTI
+// Un elenco a parte rispetto agli allievi veri e propri: non tocca
+// mai "studenti" (l'anagrafica), solo un array di nomi assenti per
+// questo test, facile da svuotare il giorno dopo. Chi vi compare
+// non conta tra i "mancanti" su locandina/live/admin, e il quiz gli
+// nega l'accesso con un messaggio dedicato.
 // ============================================================
 let idTestAssenti = null;
 let studentiPannelloAssenti = [];
@@ -1479,9 +1514,9 @@ let studentiPannelloAssenti = [];
 function avviaPannelloAssenti(id, nomeTest) {
   chiudiPannelloTentativoSeAperto();
   bloccaInterfaccia();
-  getDoc(riferimentoTestPrivato(id)).then(istantanea => {
+  getDoc(riferimentoTest(id)).then(istantanea => {
     sbloccaInterfaccia();
-    if (!istantanea.exists()) { mostraMessaggio("Dati del test non trovati.", "errore"); return; }
+    if (!istantanea.exists()) { mostraMessaggio("Test non trovato.", "errore"); return; }
     const dati = istantanea.data();
     idTestAssenti = id;
     studentiPannelloAssenti = (dati.studenti || []).slice().sort((a, b) => a.localeCompare(b, "it"));
@@ -1497,6 +1532,8 @@ function avviaPannelloAssenti(id, nomeTest) {
 }
 
 function renderizzaListaAssenti(assentiPreselezionati) {
+  // Ricordo quali sono già spuntati nella vista corrente, così un
+  // filtro di ricerca non fa perdere le selezioni fatte finora.
   const giaSpuntati = assentiPreselezionati || new Set(
     Array.from(document.querySelectorAll(".checkbox-allievo-assente:checked")).map(c => c.value)
   );
@@ -1545,10 +1582,7 @@ document.getElementById("btn-conferma-assenti").addEventListener("click", () => 
   const bottone = document.getElementById("btn-conferma-assenti");
   bottone.disabled = true; bottone.textContent = "Salvataggio...";
 
-  Promise.all([
-    setDoc(riferimentoTestPrivato(idTestAssenti), { assenti: assentiScelti }, { merge: true }),
-    updateDoc(riferimentoTest(idTestAssenti), { numeroAssenti: assentiScelti.length })
-  ]).then(() => {
+  updateDoc(riferimentoTest(idTestAssenti), { assenti: assentiScelti }).then(() => {
     bottone.disabled = false; bottone.textContent = "Salva assenti";
     mostraMessaggio(assentiScelti.length === 0 ? "Nessun assente per questo test." : assentiScelti.length + " allievo/i segnati assenti.", "ok");
     document.getElementById("scheda-assenti").classList.add("nascosto");
@@ -1569,7 +1603,10 @@ function scaricaRisultati(id, nome) {
 }
 
 // ============================================================
-// FORM: creazione/modifica test
+// FORM: creazione/modifica test, import/export Excel di
+// domande e allievi, editor manuali. Logica invariata rispetto
+// alla versione precedente, lavora sempre in memoria nel
+// browser prima del salvataggio finale su Firestore.
 // ============================================================
 let idInModifica = null;
 let domandeCaricate = null;
@@ -1912,6 +1949,9 @@ document.getElementById("btn-salva").addEventListener("click", function() {
   }).catch(e => { fine(); erroreConSblocco(e); });
 });
 
+// L'aggiornamento automatico e il tick del countdown partono solo
+// dopo il login, dalla chiamata a caricaElenco() dentro
+// onAuthStateChanged qui sopra.
 setInterval(() => { if (!document.getElementById("contenuto-principale").classList.contains("nascosto")) caricaElenco(); }, 3000);
 </script>
 
