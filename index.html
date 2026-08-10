@@ -380,7 +380,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V3 REV. 1</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V3 REV. 2</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -600,7 +600,7 @@ let TURNO_IN_CORSO = false;
 let TEST_TERMINATO_ADESSO = false;
 let NUMERO_SESSIONE_CORRENTE = 1;
 let mostrandoRiepilogoSessione = false;
-let candidatoRiepilogoSessione = null;
+let numeroSessioneDaMostrareInRiepilogo = null;
 let NUMERO_STUDENTI_TOTALE = 0;
 let NUMERO_ASSENTI_TOTALE = 0;
 let pollingStatistiche = null;
@@ -738,7 +738,7 @@ function mostraNessunTestAttivo() {
   ID_TEST_ATTIVO = "";
   TEST_HA_TIMER = false;
   TURNO_IN_CORSO = false;
-  candidatoRiepilogoSessione = null;
+  numeroSessioneDaMostrareInRiepilogo = null;
   NUMERO_ASSENTI_TOTALE = 0;
 }
 
@@ -776,10 +776,19 @@ function aggiornaStatoDaFirestore() {
 }
 
 function gestisciStatoTestLocandina(dati) {
-  if (candidatoRiepilogoSessione && !dati.avviatoTimestamp && !mostrandoRiepilogoSessione) {
-    const riepilogo = candidatoRiepilogoSessione;
-    candidatoRiepilogoSessione = null;
-    catturaEMostraRiepilogoSessione(riepilogo);
+  // Il turno risulta terminato: annoto il numero di questa sessione,
+  // per poterla cercare più avanti quando la Cloud Function
+  // "chiudiTurno" avrà finito di prepararne il riepilogo.
+  if (dati.terminatoTimestamp && numeroSessioneDaMostrareInRiepilogo === null) {
+    numeroSessioneDaMostrareInRiepilogo = (dati.azzeramenti || 0) + 1;
+  }
+
+  // Il turno è tornato pulito (la funzione ha finito): se avevamo
+  // una sessione in sospeso, andiamo a cercarne il riepilogo.
+  if (numeroSessioneDaMostrareInRiepilogo !== null && !dati.avviatoTimestamp && !dati.terminatoTimestamp && !mostrandoRiepilogoSessione) {
+    const numeroSessione = numeroSessioneDaMostrareInRiepilogo;
+    numeroSessioneDaMostrareInRiepilogo = null;
+    mostraRiepilogoSessioneSeEsiste(numeroSessione);
     return;
   }
 
@@ -964,58 +973,50 @@ function aggiornaStatistiche() {
 
       const msDaAvvio = datiTimerCorrente.avviatoTimestamp ? (Date.now() - Number(datiTimerCorrente.avviatoTimestamp)) : 0;
       if (TURNO_IN_CORSO && msDaAvvio > 15000 && inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0 &&
-          (nomiCompletatiSessioneAttuale.size + abbandonati) > 0 && !resetAutomaticoProgrammato) {
-        resetAutomaticoProgrammato = true;
-        const idTestAlMomento = ID_TEST_ATTIVO;
-        terminaEAspettaPrimaDiAzzerare(idTestAlMomento).finally(() => {
-          resetAutomaticoProgrammato = false;
-        });
-      }
-
-      if (TEST_TERMINATO_ADESSO && !mostrandoRiepilogoSessione &&
-          inSvolgimento === 0 && nomiSessioneAttuale.size > 0) {
-        candidatoRiepilogoSessione = {
-          numeroSessione: NUMERO_SESSIONE_CORRENTE,
-          partecipanti: nomiSessioneAttuale.size,
-          completati: nomiCompletatiSessioneAttuale.size,
-          abbandoni: abbandonati,
-          mancantiGenerali: mancanti
-        };
-        return;
+          (nomiCompletatiSessioneAttuale.size + abbandonati) > 0) {
+        // Segnalo solo la chiusura: la Cloud Function "chiudiTurno" fa
+        // il resto (attesa, riepilogo, pulizia presenze), anche se
+        // questa pagina viene chiusa subito dopo.
+        terminaTestFirestore(ID_TEST_ATTIVO).catch(() => {});
       }
     })
     .catch(() => {});
 }
 
-function catturaEMostraRiepilogoSessione(riepilogo) {
+async function mostraRiepilogoSessioneSeEsiste(numeroSessione) {
   mostrandoRiepilogoSessione = true;
-  if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
-  fermaCountdownLanding();
-  fermaBattitoLocandina();
+  try {
+    const istantanea = await getDoc(doc(db, "test", ID_TEST_ATTIVO, "sessioni", String(numeroSessione)));
+    if (!istantanea.exists()) {
+      // La sessione non ha avuto nessun partecipante (la Cloud
+      // Function non scrive il riepilogo in quel caso): niente da
+      // mostrare, si torna al giro normale.
+      mostrandoRiepilogoSessione = false;
+      return;
+    }
+    const riepilogo = istantanea.data();
 
-  setDoc(doc(db, "test", ID_TEST_ATTIVO, "sessioni", String(riepilogo.numeroSessione)), {
-    numeroSessione: riepilogo.numeroSessione,
-    partecipanti: riepilogo.partecipanti,
-    completati: riepilogo.completati,
-    abbandoni: riepilogo.abbandoni,
-    mancantiGenerali: riepilogo.mancantiGenerali,
-    timestamp: new Date().toLocaleString("it-IT")
-  }).catch(() => {});
+    if (pollingStatistiche) { clearInterval(pollingStatistiche); pollingStatistiche = null; }
+    fermaCountdownLanding();
+    fermaBattitoLocandina();
 
-  document.getElementById("blocco-caricamento").classList.add("nascosto");
-  document.getElementById("blocco-nessun-test").classList.add("nascosto");
-  document.getElementById("blocco-test-attivo").classList.add("nascosto");
-  document.getElementById("pannello-controllo").classList.remove("visibile");
-  document.getElementById("titolo-test-contenitore").classList.add("nascosto");
-  document.getElementById("corpo").classList.add("a-colonna-singola");
+    document.getElementById("blocco-caricamento").classList.add("nascosto");
+    document.getElementById("blocco-nessun-test").classList.add("nascosto");
+    document.getElementById("blocco-test-attivo").classList.add("nascosto");
+    document.getElementById("pannello-controllo").classList.remove("visibile");
+    document.getElementById("titolo-test-contenitore").classList.add("nascosto");
+    document.getElementById("corpo").classList.add("a-colonna-singola");
 
-  document.getElementById("riepilogo-numero-sessione").textContent = riepilogo.numeroSessione;
-  document.getElementById("riepilogo-partecipanti").textContent = riepilogo.partecipanti;
-  document.getElementById("riepilogo-completati").textContent = riepilogo.completati;
-  document.getElementById("riepilogo-abbandoni").textContent = riepilogo.abbandoni;
-  document.getElementById("riepilogo-mancanti").textContent = riepilogo.mancantiGenerali;
+    document.getElementById("riepilogo-numero-sessione").textContent = riepilogo.numeroSessione;
+    document.getElementById("riepilogo-partecipanti").textContent = riepilogo.partecipanti;
+    document.getElementById("riepilogo-completati").textContent = riepilogo.completati;
+    document.getElementById("riepilogo-abbandoni").textContent = riepilogo.abbandoni;
+    document.getElementById("riepilogo-mancanti").textContent = riepilogo.mancantiGenerali;
 
-  document.getElementById("blocco-riepilogo-sessione").classList.remove("nascosto");
+    document.getElementById("blocco-riepilogo-sessione").classList.remove("nascosto");
+  } catch (errore) {
+    mostrandoRiepilogoSessione = false;
+  }
 }
 
 document.getElementById("btn-nuova-sessione").addEventListener("click", () => {
@@ -1057,68 +1058,8 @@ function mostraTestAvviato() {
   document.getElementById("scritta-pausa-grande").classList.add("nascosto");
 }
 
-let resetAutomaticoProgrammato = false;
-
 function terminaTestFirestore(idTest) {
   return setDoc(riferimentoTest(idTest), { terminatoTimestamp: Date.now() }, { merge: true });
-}
-
-async function contaInSvolgimentoFirestore(idTest) {
-  const istantanea = await getDocs(riferimentoPresenze(idTest));
-  const ora = Date.now();
-  const SOGLIA_CONNESSIONE_MS = 180000;
-  let inSvolgimento = 0;
-  istantanea.forEach(documento => {
-    const dati = documento.data();
-    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
-    if (fresco && dati.stato === "in_corso") inSvolgimento++;
-  });
-  return inSvolgimento;
-}
-
-async function azzeraTurnoFirestore(idTest) {
-  await setDoc(riferimentoTest(idTest), {
-    avviatoTimestamp: null,
-    pausaTimestamp: null,
-    terminatoTimestamp: null,
-    totalePausaMs: 0,
-    secondiRimastiAllaPausa: null,
-    azzeramenti: increment(1)
-  }, { merge: true });
-
-  const istantanea = await getDocs(riferimentoPresenze(idTest));
-  if (!istantanea.empty) {
-    const batch = writeBatch(db);
-    istantanea.forEach(documento => batch.delete(documento.ref));
-    await batch.commit();
-  }
-}
-
-function terminaEAspettaPrimaDiAzzerare(idTest) {
-  const massimoControlli = 36;
-  return terminaTestFirestore(idTest).then(() => new Promise(risolvi => {
-    let controlli = 0;
-    function controllaEAzzera() {
-      contaInSvolgimentoFirestore(idTest)
-        .then(inSvolgimento => {
-          controlli++;
-          if (inSvolgimento > 0 && controlli < massimoControlli) {
-            setTimeout(controllaEAzzera, 5000);
-          } else {
-            azzeraTurnoFirestore(idTest).catch(() => {}).finally(() => risolvi());
-          }
-        })
-        .catch(() => {
-          controlli++;
-          if (controlli < massimoControlli) {
-            setTimeout(controllaEAzzera, 5000);
-          } else {
-            azzeraTurnoFirestore(idTest).catch(() => {}).finally(() => risolvi());
-          }
-        });
-    }
-    setTimeout(controllaEAzzera, 5000);
-  }));
 }
 
 function mostraTempoScaduto() {
@@ -1133,13 +1074,11 @@ function mostraTempoScaduto() {
   document.getElementById("stato-scaduto").classList.remove("nascosto");
   document.getElementById("scritta-pausa-grande").classList.add("nascosto");
 
-  if (!resetAutomaticoProgrammato) {
-    resetAutomaticoProgrammato = true;
-    const idTestAlMomento = ID_TEST_ATTIVO;
-    terminaEAspettaPrimaDiAzzerare(idTestAlMomento).finally(() => {
-      resetAutomaticoProgrammato = false;
-    });
-  }
+  // Segnalo solo che il turno è finito: da qui in poi ci pensa la
+  // Cloud Function "chiudiTurno" ad aspettare gli ultimi invii e a
+  // pulire le presenze, anche se questa pagina viene chiusa subito
+  // dopo.
+  terminaTestFirestore(ID_TEST_ATTIVO).catch(() => {});
 }
 
 function mostraTestInPausa() {
@@ -1234,19 +1173,19 @@ document.getElementById("btn-chiudi-turno").addEventListener("click", () => {
     "L'operazione non può essere annullata.";
   if (!confirm(messaggio)) return;
 
-  azioneInCorso = true;
   const bottone = document.getElementById("btn-chiudi-turno");
   bottone.disabled = true;
   bottone.textContent = "Chiusura in corso...";
   fermaCountdownLanding();
 
-  const idTestAlMomento = ID_TEST_ATTIVO;
-  terminaEAspettaPrimaDiAzzerare(idTestAlMomento)
-    .then(() => {
-      resettaPannelloControllo();
-      aggiornaStatistiche();
-      azioneInCorso = false;
-    });
+  // Da qui in poi ci pensa la Cloud Function "chiudiTurno": aspetta
+  // gli ultimi invii, prepara il riepilogo e pulisce le presenze,
+  // anche se questa pagina viene chiusa nel frattempo.
+  terminaTestFirestore(ID_TEST_ATTIVO).catch(errore => {
+    registraAvvisoClient("CHIUDI TURNO", errore && errore.message ? errore.message : String(errore));
+    bottone.disabled = false;
+    bottone.textContent = "Termina manualmente";
+  });
 });
 
 const iconaEspandi = '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';

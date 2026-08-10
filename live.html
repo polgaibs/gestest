@@ -206,7 +206,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">V3 REV. 1</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#e6edf5; background:#131c2e; padding:2px 6px; border-radius:4px; border:1px solid #223049; z-index:1000; pointer-events:none;">V3 REV. 2</div>
 
 <div id="schermata-login" class="nascosto">
   <h1 style="margin-top:0;">📋 GesTest — Live</h1>
@@ -588,6 +588,7 @@ function renderizzaPannelloTest() {
       '<button id="btn-riprendi" class="oro" ' + (!avviato || !inPausa ? 'disabled' : '') + '>▶ Riprendi</button>' +
       '<button id="btn-termina" class="pericolo" ' + (!avviato ? 'disabled' : '') + '>⏹ Termina manualmente</button>' +
       '<button id="btn-report" class="secondario">📊 Scarica report sessione</button>' +
+      '<button id="btn-pulisci-presenze" class="secondario" ' + (avviato ? 'disabled' : '') + '>🧹 Pulisci presenze rimaste</button>' +
     '</div>' + avvisoLocandinaHtml;
 
   document.getElementById("btn-avvia").addEventListener("click", avviaTest);
@@ -597,6 +598,7 @@ function renderizzaPannelloTest() {
   document.getElementById("btn-report").addEventListener("click", () => {
     generaEScaricaReportSessione().catch(e => alert("Errore nella generazione del report: " + e.message));
   });
+  document.getElementById("btn-pulisci-presenze").addEventListener("click", pulisciPresenzeRimaste);
 }
 
 // ============================================================
@@ -618,29 +620,6 @@ function riprendiTest() {
   const nuovoTotalePausaMs = Number(datiTestCorrente.totalePausaMs || 0) + (datiTestCorrente.pausaTimestamp ? (Date.now() - Number(datiTestCorrente.pausaTimestamp)) : 0);
   setDoc(riferimentoTest(ID_TEST), { pausaTimestamp: null, totalePausaMs: nuovoTotalePausaMs }, { merge: true }).catch(e => alert("Errore: " + e.message));
 }
-async function contaInSvolgimentoFirestore(idTest) {
-  const istantanea = await getDocs(riferimentoPresenze(idTest));
-  const ora = Date.now();
-  let n = 0;
-  istantanea.forEach(d => {
-    const dati = d.data();
-    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
-    if (fresco && dati.stato === "in_corso") n++;
-  });
-  return n;
-}
-async function azzeraTurnoFirestore(idTest) {
-  await setDoc(riferimentoTest(idTest), {
-    avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
-    totalePausaMs: 0, secondiRimastiAllaPausa: null, azzeramenti: increment(1)
-  }, { merge: true });
-  const istantanea = await getDocs(riferimentoPresenze(idTest));
-  if (!istantanea.empty) {
-    const batch = writeBatch(db);
-    istantanea.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-  }
-}
 function calcolaSecchiAttuali() {
   const secchi = { consegnato: [], svolgimento: [], attesa: [], abbandonato: [], mancante: [] };
   STUDENTI.forEach(nomeCompleto => {
@@ -658,31 +637,40 @@ function terminaTest() {
   const idAlMomento = ID_TEST;
   const nomeAlMomento = datiTestCorrente.nome || idAlMomento;
 
+  // Fotografo subito lo stato per il report scaricabile, usando i
+  // dati già in mano da qui: aspettare non serve più, e aspettare
+  // rischierebbe solo di arrivare dopo che la Cloud Function ha già
+  // ripulito le presenze.
+  ultimaIstantaneaTurno = {
+    idTest: idAlMomento,
+    nomeTest: nomeAlMomento,
+    orario: new Date(),
+    secchi: calcolaSecchiAttuali(),
+    risultati: new Map(risultatiCorrenti)
+  };
+  document.getElementById("nota-report-pronto").classList.remove("nascosto");
+
+  // Segnalo solo la chiusura: da qui in poi ci pensa la Cloud
+  // Function "chiudiTurno" (attesa degli ultimi invii, riepilogo,
+  // pulizia delle presenze), anche se questa pagina viene chiusa
+  // subito dopo.
   setDoc(riferimentoTest(idAlMomento), { terminatoTimestamp: Date.now() }, { merge: true })
-    .then(() => {
-      setTimeout(() => {
-        ultimaIstantaneaTurno = {
-          idTest: idAlMomento,
-          nomeTest: nomeAlMomento,
-          orario: new Date(),
-          secchi: calcolaSecchiAttuali(),
-          risultati: new Map(risultatiCorrenti)
-        };
-        document.getElementById("nota-report-pronto").classList.remove("nascosto");
-        aspettaEAzzera(idAlMomento, 0);
-      }, 6000);
-    })
     .catch(e => alert("Errore: " + e.message));
 }
-function aspettaEAzzera(idTest, controlli) {
-  const massimoControlli = 36;
-  contaInSvolgimentoFirestore(idTest).then(n => {
-    if (n > 0 && controlli < massimoControlli) setTimeout(() => aspettaEAzzera(idTest, controlli + 1), 5000);
-    else azzeraTurnoFirestore(idTest).catch(() => {});
-  }).catch(() => {
-    if (controlli < massimoControlli) setTimeout(() => aspettaEAzzera(idTest, controlli + 1), 5000);
-    else azzeraTurnoFirestore(idTest).catch(() => {});
-  });
+
+async function pulisciPresenzeRimaste() {
+  if (!ID_TEST) return;
+  if (!confirm("Cancellare tutte le presenze rimaste per questo test? Usalo solo se dopo una sessione chiusa continuano a comparire allievi \"abbandonati\" o \"in attesa\" che non dovrebbero più esserci: capita se la pagina da cui è stata chiusa la sessione precedente è stata chiusa troppo presto per lasciar finire la pulizia automatica.")) return;
+  try {
+    const istantanea = await getDocs(riferimentoPresenze(ID_TEST));
+    if (istantanea.empty) { alert("Non risultano presenze da pulire."); return; }
+    const batch = writeBatch(db);
+    istantanea.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    alert("Rimosse " + istantanea.size + " presenze rimaste.");
+  } catch (e) {
+    alert("Errore nella pulizia: " + e.message);
+  }
 }
 
 // ============================================================

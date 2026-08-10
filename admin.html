@@ -324,7 +324,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V3 REV. 4</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V3 REV. 5</div>
 
 <div id="messaggio-globale"></div>
 
@@ -797,28 +797,6 @@ async function permettiNuoviTentativi(idTest, nomiArray) {
     risultati.push({ nome, esito: esito.esito });
   }
   return risultati;
-}
-
-async function contaInSvolgimentoFirestore(idTest) {
-  const istantanea = await getDocs(riferimentoPresenze(idTest));
-  const ora = Date.now();
-  const SOGLIA_CONNESSIONE_MS = 180000;
-  let inSvolgimento = 0;
-  istantanea.forEach(documento => {
-    const dati = documento.data();
-    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
-    if (fresco && dati.stato === "in_corso") inSvolgimento++;
-  });
-  return inSvolgimento;
-}
-
-async function azzeraTurnoFirestore(idTest) {
-  await setDoc(riferimentoTest(idTest), {
-    avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
-    totalePausaMs: 0, secondiRimastiAllaPausa: null,
-    azzeramenti: increment(1)
-  }, { merge: true });
-  await svuotaSottocollezione(riferimentoPresenze(idTest));
 }
 
 async function arricchisciConStatoLive(test) {
@@ -1500,27 +1478,17 @@ function avviaTestConConferma(id) {
 function terminaManualmenteConConferma(id) {
   chiudiPannelloTentativoSeAperto();
   bloccaInterfaccia();
-  mostraMessaggio("Chiusura del turno in corso, aspetto che gli ultimi invii arrivino prima di azzerare.", "ok");
+  // Segnalo solo la chiusura: da qui in poi ci pensa la Cloud
+  // Function "chiudiTurno", che aspetta gli ultimi invii, prepara il
+  // riepilogo e pulisce le presenze anche se questa pagina viene
+  // chiusa subito dopo.
   setDoc(riferimentoTest(id), { terminatoTimestamp: Date.now() }, { merge: true })
-    .then(() => aspettaEAzzeraTurno(id, 0))
+    .then(() => {
+      mostraMessaggio("Turno terminato. La chiusura (attesa degli ultimi invii e pulizia) prosegue in automatico anche se chiudi questa pagina.", "ok");
+      sbloccaInterfaccia();
+      caricaElenco();
+    })
     .catch(erroreConSblocco);
-}
-
-function aspettaEAzzeraTurno(id, controlli) {
-  const massimoControlli = 36;
-  contaInSvolgimentoFirestore(id).then(inSvolgimento => {
-    if (inSvolgimento > 0 && controlli < massimoControlli) {
-      setTimeout(() => aspettaEAzzeraTurno(id, controlli + 1), 5000);
-    } else {
-      azzeraTurnoFirestore(id).then(() => {
-        mostraMessaggio("Turno chiuso e azzerato. Pronto per il prossimo gruppo di allievi.", "ok");
-        caricaElenco();
-      }).catch(erroreConSblocco);
-    }
-  }).catch(() => {
-    if (controlli < massimoControlli) setTimeout(() => aspettaEAzzeraTurno(id, controlli + 1), 5000);
-    else azzeraTurnoFirestore(id).finally(() => caricaElenco());
-  });
 }
 
 function pausaTestConConferma(test) {
