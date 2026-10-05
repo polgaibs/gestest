@@ -324,7 +324,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V3 REV. 5</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">V3 REV. 6</div>
 
 <div id="messaggio-globale"></div>
 
@@ -599,6 +599,24 @@ async function elencoTest() {
         }
       });
     }
+    // Riallinea i contatori pubblici letti dalla locandina (solo numeri):
+    // completati su tutte le sessioni e nella sessione in corso. Serve
+    // per i test creati prima dell'introduzione dei contatori, e dopo un
+    // "nuovo tentativo" che annulla un risultato. Scrive solo se i valori
+    // differiscono, quindi a regime non produce scritture.
+    {
+      const sessioneInCorso = (dati.azzeramenti || 0) + 1;
+      let completatiSessioneCalcolati = 0;
+      istantaneaRisultati.forEach(documentoRisultato => {
+        if (documentoRisultato.data().numeroSessione === sessioneInCorso) completatiSessioneCalcolati++;
+      });
+      if (dati.completatiTotali !== istantaneaRisultati.size || dati.completatiSessione !== completatiSessioneCalcolati) {
+        updateDoc(riferimentoTest(documento.id), {
+          completatiTotali: istantaneaRisultati.size,
+          completatiSessione: completatiSessioneCalcolati
+        }).catch(() => {});
+      }
+    }
     risultato.push({
       id: documento.id,
       nome: dati.nome || "",
@@ -641,6 +659,8 @@ async function creaTest(nome, pin, durataMinuti, domande, studenti, sogliaPercen
     // toccare.
     numeroAssenti: 0,
     numeroStudenti: studenti.length,
+    completatiTotali: 0,
+    completatiSessione: 0,
     dataCreazione: new Date().toLocaleString("it-IT"),
     azzeramenti: 0,
     avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,
@@ -921,6 +941,8 @@ async function importaTestDaFile(file) {
     attivo: false,
     numeroAssenti: (t.assenti || []).length,
     numeroStudenti: (t.studenti || []).length,
+    completatiTotali: (pacchetto.risultati || []).filter(r => !r.annullato).length,
+    completatiSessione: (pacchetto.risultati || []).filter(r => !r.annullato && r.numeroSessione === (t.azzeramenti || 0) + 1).length,
     dataCreazione: new Date().toLocaleString("it-IT"),
     azzeramenti: t.azzeramenti || 0,
     avviatoTimestamp: null, pausaTimestamp: null, terminatoTimestamp: null,

@@ -380,7 +380,7 @@
 <body>
 
 <div style="position:fixed; bottom:4px; left:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V3 REV. 2</div>
+<div style="position:fixed; bottom:4px; right:6px; font-size:10px; color:#5a6c80; z-index:1000; pointer-events:none;">V3 REV. 3</div>
 
 <div id="banner-connessione" style="display:none; position:fixed; top:0; left:0; right:0; background:#e63946; color:white; text-align:center; padding:8px; font-weight:600; z-index:999;">
   Connessione instabile con Firestore, sto ritentando in automatico...
@@ -603,6 +603,12 @@ let mostrandoRiepilogoSessione = false;
 let numeroSessioneDaMostrareInRiepilogo = null;
 let NUMERO_STUDENTI_TOTALE = 0;
 let NUMERO_ASSENTI_TOTALE = 0;
+// Contatori pubblici scritti dalla Cloud Function inviaRisultato (solo
+// numeri, nessun nome): completati su tutte le sessioni e nella sessione
+// in corso. La locandina non può leggere i risultati veri, che sono
+// riservati agli amministratori.
+let COMPLETATI_TOTALI = 0;
+let COMPLETATI_SESSIONE = 0;
 let pollingStatistiche = null;
 let annullaOsservatoreTest = null;
 let generazioneOsservatoreTest = 0;
@@ -802,6 +808,8 @@ function gestisciStatoTestLocandina(dati) {
   TEST_HA_TIMER = (dati.durataMinuti || 0) > 0;
   NUMERO_STUDENTI_TOTALE = dati.numeroStudenti || 0;
   NUMERO_ASSENTI_TOTALE = dati.numeroAssenti || 0;
+  COMPLETATI_TOTALI = dati.completatiTotali || 0;
+  COMPLETATI_SESSIONE = dati.completatiSessione || 0;
   document.getElementById("numero-assenti").textContent = NUMERO_ASSENTI_TOTALE + " di " + NUMERO_STUDENTI_TOTALE;
 
   document.getElementById("pannello-controllo").classList.add("visibile");
@@ -886,52 +894,39 @@ setInterval(aggiornaStatoDaFirestore, 2000);
 
 function aggiornaStatistiche() {
   if (!ID_TEST_ATTIVO) return;
-  Promise.all([
-    getDocs(query(riferimentoRisultati(ID_TEST_ATTIVO), where("annullato", "==", false))),
-    getDocs(riferimentoPresenze(ID_TEST_ATTIVO))
-  ])
-    .then(([istantaneaRisultati, istantaneaPresenze]) => {
-      const nomiCompletati = new Set();
-      const numeroSessionePerNomeCompletato = new Map();
-      istantaneaRisultati.forEach(documento => {
-        const d = documento.data();
-        const nome = (d.nome || "").trim().toLowerCase();
-        if (nome) {
-          nomiCompletati.add(nome);
-          numeroSessionePerNomeCompletato.set(nome, typeof d.numeroSessione === "number" ? d.numeroSessione : null);
-        }
-      });
-
+  // Legge solo le presenze, che sono pubbliche. I completati arrivano
+  // dai contatori numerici del documento pubblico del test, perché i
+  // risultati veri (nomi, punteggi, risposte) sono riservati.
+  getDocs(riferimentoPresenze(ID_TEST_ATTIVO))
+    .then((istantaneaPresenze) => {
       const SOGLIA_CONNESSIONE_MS = 180000;
       const ora = Date.now();
-      const nomiConnessi = new Set();
-      const nomiSessioneAttuale = new Set();
+      let connessi = 0;
+      let connessiNonCompletati = 0;
       let inSvolgimento = 0;
       let inAttesa = 0;
       let abbandonati = 0;
+      let partecipantiSessione = 0;
       istantaneaPresenze.forEach(documento => {
         const d = documento.data();
-        const nomeNormalizzato = (d.nome || "").trim().toLowerCase();
-        nomiSessioneAttuale.add(nomeNormalizzato);
+        partecipantiSessione++;
         const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS;
         if (!fresco) {
-          if (!nomiCompletati.has(nomeNormalizzato)) abbandonati++;
+          // Presenza ferma: è un abbandono solo se non aveva consegnato.
+          if (d.stato !== "completato") abbandonati++;
           return;
         }
-        if (["attesa", "in_corso", "bloccato", "completato"].includes(d.stato)) nomiConnessi.add(nomeNormalizzato);
+        if (["attesa", "in_corso", "bloccato", "completato"].includes(d.stato)) connessi++;
+        if (["attesa", "in_corso", "bloccato"].includes(d.stato)) connessiNonCompletati++;
         if (d.stato === "in_corso") inSvolgimento++;
         if (d.stato === "attesa") inAttesa++;
       });
-      const connessi = nomiConnessi.size;
-      const completati = nomiCompletati.size;
-      // "Mancanti": totale meno chi è coperto (connesso o già
-      // consegnato) meno gli assenti. Uso una somma, non un'unione
-      // con i nomi degli assenti (che qui non abbiamo, solo il
-      // conteggio pubblico): un assente non può mai avere presenza né
-      // risultato, dato che il quiz lo blocca comunque, quindi le due
-      // parti restano sempre disgiunte davvero.
-      const copertiConnessiCompletati = new Set([...nomiConnessi, ...nomiCompletati]).size;
-      const mancanti = Math.max(NUMERO_STUDENTI_TOTALE - copertiConnessiCompletati - NUMERO_ASSENTI_TOTALE, 0);
+
+      const completati = COMPLETATI_TOTALI;
+      // "Mancanti": totale meno chi è coperto (già consegnato su
+      // qualsiasi sessione, oppure collegato e non ancora consegnato)
+      // meno gli assenti.
+      const mancanti = Math.max(NUMERO_STUDENTI_TOTALE - completati - connessiNonCompletati - NUMERO_ASSENTI_TOTALE, 0);
 
       document.getElementById("numero-connessi").textContent = connessi;
       document.getElementById("numero-mancanti").textContent = mancanti;
@@ -939,14 +934,8 @@ function aggiornaStatistiche() {
       document.getElementById("numero-svolgimento").textContent = inSvolgimento;
       document.getElementById("numero-completati").textContent = completati;
 
-      const nomiCompletatiSessioneAttuale = new Set([...nomiCompletati].filter(n => {
-        const numeroSessioneRisultato = numeroSessionePerNomeCompletato.get(n);
-        return numeroSessioneRisultato !== null
-          ? numeroSessioneRisultato === NUMERO_SESSIONE_CORRENTE
-          : nomiSessioneAttuale.has(n);
-      }));
-      const completatiSessioniPrecedenti = completati - nomiCompletatiSessioneAttuale.size;
-      const totaleRisposto = completatiSessioniPrecedenti + Math.max(nomiSessioneAttuale.size - abbandonati, 0);
+      const completatiSessioniPrecedenti = Math.max(completati - COMPLETATI_SESSIONE, 0);
+      const totaleRisposto = completatiSessioniPrecedenti + Math.max(partecipantiSessione - abbandonati, 0);
       const riquadroAndamento = document.getElementById("riquadro-andamento");
       if (!TURNO_IN_CORSO || totaleRisposto === 0) {
         riquadroAndamento.classList.add("nascosto");
@@ -972,8 +961,8 @@ function aggiornaStatistiche() {
       }
 
       const msDaAvvio = datiTimerCorrente.avviatoTimestamp ? (Date.now() - Number(datiTimerCorrente.avviatoTimestamp)) : 0;
-      if (TURNO_IN_CORSO && msDaAvvio > 15000 && inSvolgimento === 0 && inAttesa === 0 && nomiSessioneAttuale.size > 0 &&
-          (nomiCompletatiSessioneAttuale.size + abbandonati) > 0) {
+      if (TURNO_IN_CORSO && msDaAvvio > 15000 && inSvolgimento === 0 && inAttesa === 0 && partecipantiSessione > 0 &&
+          (COMPLETATI_SESSIONE + abbandonati) > 0) {
         // Segnalo solo la chiusura: la Cloud Function "chiudiTurno" fa
         // il resto (attesa, riepilogo, pulizia presenze), anche se
         // questa pagina viene chiusa subito dopo.
