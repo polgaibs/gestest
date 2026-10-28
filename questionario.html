@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     QUESTIONARIO DI GRADIMENTO ANONIMO, questionario.html
+     Pagina per gli allievi. Si apre dal link o dal QR stampato sul
+     bigliettino, nella forma questionario.html?id=IDQUESTIONARIO
+     (il QR dei bigliettini contiene anche il codice già compilato).
+
+     Anonimato: la pagina non chiede né conserva nome, PERID o altro,
+     non scrive nulla nel browser (niente localStorage, niente cookie)
+     e non registra presenze. Parla solo con due funzioni sul server,
+     iniziaGradimento e inviaGradimento. Il codice monouso serve
+     soltanto a impedire i doppi invii e viene consumato all'invio
+     finale, mai prima.
+     ============================================================ -->
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Questionario Scuola Pol.G.A.I. Brescia</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  :root {
+    --blu: #1d3557;
+    --blu-chiaro: #457b9d;
+    --rosso: #e63946;
+    --grigio-chiaro: #f1f1f1;
+    --verde: #2a9d8f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--grigio-chiaro);
+    margin: 0;
+    color: #1d1d1d;
+  }
+  header {
+    padding: 16px;
+    background: var(--blu);
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 { margin: 0; font-size: 1.2rem; flex: 1; text-align: center; }
+  .stemma { height: 60px; width: auto; flex-shrink: 0; }
+  .contenitore { max-width: 640px; margin: 0 auto; padding: 8px 16px 70px 16px; }
+  .scheda {
+    background: white;
+    border-radius: 10px;
+    padding: 22px;
+    margin-top: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  h2 { color: var(--blu); margin-top: 0; font-size: 1.25rem; }
+  label.etichetta-campo { display: block; font-weight: 600; color: var(--blu); margin-bottom: 8px; }
+  input[type="text"] {
+    width: 100%;
+    padding: 14px;
+    font-size: 1.3rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-align: center;
+    font-family: "Consolas", "Courier New", monospace;
+  }
+  textarea {
+    width: 100%;
+    min-height: 84px;
+    padding: 10px;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-family: inherit;
+    resize: vertical;
+  }
+  button.principale {
+    background: var(--blu);
+    color: white;
+    border: none;
+    padding: 14px 20px;
+    font-size: 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 16px;
+  }
+  button.principale:hover { background: var(--blu-chiaro); }
+  button.principale:disabled { background: #aaa; cursor: not-allowed; }
+  .errore { color: var(--rosso); font-weight: 600; margin: 12px 0 0 0; display: none; }
+  .nascosto { display: none !important; }
+  .nota { color: #666; font-size: 0.9rem; }
+  .riquadro-anonimo {
+    background: #eef5f8;
+    border-left: 4px solid var(--blu-chiaro);
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin: 14px 0;
+    font-size: 0.95rem;
+  }
+
+  .domanda { margin-top: 20px; }
+  .domanda.in-errore { outline: 2px solid var(--rosso); outline-offset: 6px; border-radius: 6px; }
+  .numero-domanda { color: var(--blu-chiaro); font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
+  .testo-domanda { font-weight: 600; font-size: 1.05rem; margin: 6px 0 12px 0; }
+  .tag-obbligatoria { color: var(--rosso); font-size: 0.8rem; font-weight: 600; margin-left: 6px; }
+  .scala { display: flex; flex-wrap: wrap; gap: 8px; }
+  .scala button {
+    flex: 1 1 44px;
+    min-width: 44px;
+    max-width: 80px;
+    padding: 12px 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    background: white;
+    color: var(--blu);
+    border: 2px solid var(--blu);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .scala button.scelto { background: var(--blu); color: white; }
+  .estremi { display: flex; justify-content: space-between; gap: 12px; color: #666; font-size: 0.85rem; margin-top: 6px; }
+  .estremi span:last-child { text-align: right; }
+  .blocco-commento { margin-top: 12px; }
+  .blocco-commento label { display: block; font-size: 0.9rem; color: #555; margin-bottom: 4px; }
+  .separatore { border: none; border-top: 1px solid #e5e5e5; margin: 22px 0 0 0; }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">QUESTIONARIO V3 REV. 1</div>
+
+<header>
+  <img src="stemma.png" alt="Stemma" class="stemma">
+  <h1>Scuola Pol.G.A.I. Brescia</h1>
+</header>
+
+<div class="contenitore">
+
+  <!-- CARICAMENTO -->
+  <div class="scheda" id="schermata-caricamento">
+    <p>Caricamento in corso...</p>
+  </div>
+
+  <!-- MESSAGGIO (questionario non trovato, non ancora aperto, chiuso) -->
+  <div class="scheda nascosto" id="schermata-messaggio">
+    <h2 id="titolo-messaggio">Questionario non disponibile</h2>
+    <p id="testo-messaggio"></p>
+  </div>
+
+  <!-- INGRESSO CON CODICE -->
+  <div class="scheda nascosto" id="schermata-codice">
+    <h2 id="titolo-questionario">Questionario</h2>
+    <p id="testo-finestra" class="nota"></p>
+    <div class="riquadro-anonimo">
+      Il questionario è <strong>anonimo</strong>. Il codice che hai ricevuto serve solo a consentire una sola compilazione e non è collegato al tuo nome.
+    </div>
+    <label class="etichetta-campo" for="campo-codice">Inserisci il tuo codice</label>
+    <input type="text" id="campo-codice" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX">
+    <p class="errore" id="errore-codice"></p>
+    <button class="principale" id="btn-continua">Continua</button>
+  </div>
+
+  <!-- COMPILAZIONE -->
+  <div class="nascosto" id="schermata-compilazione">
+    <div class="scheda">
+      <h2 id="titolo-compilazione">Questionario</h2>
+      <div class="riquadro-anonimo">
+        Compila tutto in un'unica volta, poi premi <strong>Invia</strong> in fondo alla pagina.
+        Se chiudi la pagina prima dell'invio, le risposte date vanno perse ma il tuo codice resta valido e potrai ricominciare.
+        <span id="testo-scadenza"></span>
+      </div>
+      <div id="contenitore-domande"></div>
+      <p class="errore" id="errore-invio"></p>
+      <button class="principale" id="btn-invia">Invia il questionario</button>
+    </div>
+  </div>
+
+  <!-- INVIO IN CORSO -->
+  <div class="scheda nascosto" id="schermata-invio">
+    <p>Invio in corso, attendere...</p>
+  </div>
+
+  <!-- FINE -->
+  <div class="scheda nascosto" id="schermata-fine">
+    <h2>Grazie per aver compilato il questionario</h2>
+    <p>Le tue risposte sono state inviate in forma anonima.</p>
+    <p>Il tuo codice è stato utilizzato e non può essere usato di nuovo. Puoi chiudere questa pagina.</p>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-functions.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC7sd8dmrLrU5D-wkBB47zGkfdSxDU6Qcc",
+  authDomain: "gestest-v2-fb16b.firebaseapp.com",
+  projectId: "gestest-v2-fb16b",
+  storageBucket: "gestest-v2-fb16b.firebasestorage.app",
+  messagingSenderId: "599095343445",
+  appId: "1:599095343445:web:9d350823aceb9fd43197dc",
+  measurementId: "G-2VB4721H78"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+const functions = getFunctions(appFirebase, "europe-west1");
+const funzioneInizia = httpsCallable(functions, "iniziaGradimento");
+const funzioneInvia = httpsCallable(functions, "inviaGradimento");
+
+const parametri = new URLSearchParams(location.search);
+const ID_QUESTIONARIO = (parametri.get("id") || "").trim();
+const CODICE_DA_LINK = (parametri.get("c") || "").trim();
+
+let codiceInUso = "";
+let domandeCaricate = [];
+// Risposte date finora, solo in memoria: nulla viene scritto nel browser.
+const risposte = new Map(); // id domanda -> { valore, commento }
+
+const schermate = ["schermata-caricamento", "schermata-messaggio", "schermata-codice", "schermata-compilazione", "schermata-invio", "schermata-fine"];
+function mostra(idSchermata) {
+  schermate.forEach(id => document.getElementById(id).classList.toggle("nascosto", id !== idSchermata));
+  window.scrollTo(0, 0);
+}
+function mostraMessaggio(titolo, testo) {
+  document.getElementById("titolo-messaggio").textContent = titolo;
+  document.getElementById("testo-messaggio").textContent = testo;
+  mostra("schermata-messaggio");
+}
+function formattaDataOra(ms) {
+  return new Date(Number(ms)).toLocaleString("it-IT", {
+    timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+  });
+}
+function messaggioDaErrore(errore) {
+  const codice = (errore && errore.code) || "";
+  const testo = (errore && errore.message) || "";
+  if (codice === "functions/unavailable" || codice === "functions/deadline-exceeded" || codice === "functions/internal") {
+    return "Servizio momentaneamente non raggiungibile. Controlla la connessione e riprova tra qualche istante.";
+  }
+  return testo || "Si è verificato un errore. Riprova.";
+}
+
+// ------------------------------------------------------------
+// Avvio: legge solo i campi pubblici del questionario
+// ------------------------------------------------------------
+async function avvia() {
+  if (!ID_QUESTIONARIO || ID_QUESTIONARIO.length > 40 || ID_QUESTIONARIO.includes("/")) {
+    mostraMessaggio("Questionario non disponibile", "Il link non è valido. Usa il QR code o il link riportato sul tuo bigliettino.");
+    return;
+  }
+  let pubblico;
+  try {
+    const istantanea = await getDoc(doc(db, "test", ID_QUESTIONARIO));
+    if (!istantanea.exists() || istantanea.data().tipo !== "gradimento") {
+      mostraMessaggio("Questionario non disponibile", "Il questionario indicato non esiste. Controlla il link o il QR code.");
+      return;
+    }
+    pubblico = istantanea.data();
+  } catch (errore) {
+    mostraMessaggio("Servizio non raggiungibile", "Controlla la connessione e ricarica la pagina.");
+    return;
+  }
+
+  document.getElementById("titolo-questionario").textContent = pubblico.nome || "Questionario";
+  document.getElementById("titolo-compilazione").textContent = pubblico.nome || "Questionario";
+
+  const ora = Date.now();
+  if (pubblico.aperturaTimestamp && ora < Number(pubblico.aperturaTimestamp)) {
+    mostraMessaggio("Questionario non ancora aperto", "Il questionario apre il " + formattaDataOra(pubblico.aperturaTimestamp) + ". Riprova da quel momento.");
+    return;
+  }
+  if (pubblico.chiusuraTimestamp && ora > Number(pubblico.chiusuraTimestamp)) {
+    mostraMessaggio("Questionario chiuso", "Il questionario è stato chiuso il " + formattaDataOra(pubblico.chiusuraTimestamp) + ".");
+    return;
+  }
+
+  document.getElementById("testo-finestra").textContent = pubblico.chiusuraTimestamp
+    ? "Puoi compilarlo fino al " + formattaDataOra(pubblico.chiusuraTimestamp) + "."
+    : "";
+  if (CODICE_DA_LINK) document.getElementById("campo-codice").value = formattaCodice(CODICE_DA_LINK);
+  mostra("schermata-codice");
+}
+
+function formattaCodice(testo) {
+  const pulito = (testo || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  return pulito.length > 4 ? pulito.slice(0, 4) + "-" + pulito.slice(4) : pulito;
+}
+document.getElementById("campo-codice").addEventListener("input", (e) => {
+  e.target.value = formattaCodice(e.target.value);
+});
+document.getElementById("campo-codice").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("btn-continua").click();
+});
+
+// ------------------------------------------------------------
+// Ingresso con codice
+// ------------------------------------------------------------
+document.getElementById("btn-continua").addEventListener("click", async () => {
+  const campo = document.getElementById("campo-codice");
+  const erroreEl = document.getElementById("errore-codice");
+  const bottone = document.getElementById("btn-continua");
+  erroreEl.style.display = "none";
+  const codice = campo.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (codice.length < 8) {
+    erroreEl.textContent = "Inserisci il codice completo, di 8 caratteri.";
+    erroreEl.style.display = "block";
+    return;
+  }
+  bottone.disabled = true;
+  bottone.textContent = "Verifica in corso...";
+  try {
+    const esito = await funzioneInizia({ idTest: ID_QUESTIONARIO, codice });
+    codiceInUso = codice;
+    domandeCaricate = esito.data.domande || [];
+    disegnaDomande(domandeCaricate);
+    if (esito.data.chiusuraTimestamp) {
+      document.getElementById("testo-scadenza").textContent =
+        "Il questionario si chiude il " + formattaDataOra(esito.data.chiusuraTimestamp) + ".";
+    }
+    mostra("schermata-compilazione");
+  } catch (errore) {
+    erroreEl.textContent = messaggioDaErrore(errore);
+    erroreEl.style.display = "block";
+  } finally {
+    bottone.disabled = false;
+    bottone.textContent = "Continua";
+  }
+});
+
+// ------------------------------------------------------------
+// Disegno delle domande
+// ------------------------------------------------------------
+function disegnaDomande(domande) {
+  const contenitore = document.getElementById("contenitore-domande");
+  contenitore.innerHTML = "";
+  risposte.clear();
+
+  domande.forEach((domanda, indice) => {
+    risposte.set(domanda.id, { valore: null, commento: "" });
+    const blocco = document.createElement("div");
+    blocco.className = "domanda";
+    blocco.dataset.id = domanda.id;
+    if (indice > 0) {
+      const sep = document.createElement("hr");
+      sep.className = "separatore";
+      contenitore.appendChild(sep);
+    }
+
+    const numero = document.createElement("div");
+    numero.className = "numero-domanda";
+    numero.textContent = "Domanda " + (indice + 1) + " di " + domande.length;
+    blocco.appendChild(numero);
+
+    const testo = document.createElement("div");
+    testo.className = "testo-domanda";
+    testo.textContent = domanda.testo;
+    if (domanda.obbligatoria) {
+      const tag = document.createElement("span");
+      tag.className = "tag-obbligatoria";
+      tag.textContent = "obbligatoria";
+      testo.appendChild(tag);
+    }
+    blocco.appendChild(testo);
+
+    if (domanda.tipo === "scala") {
+      const scala = document.createElement("div");
+      scala.className = "scala";
+      for (let n = 1; n <= domanda.scalaMax; n++) {
+        const bottone = document.createElement("button");
+        bottone.type = "button";
+        bottone.textContent = String(n);
+        bottone.addEventListener("click", () => {
+          const attuale = risposte.get(domanda.id);
+          // Un secondo clic sullo stesso valore lo toglie (utile per le domande facoltative).
+          attuale.valore = attuale.valore === n ? null : n;
+          scala.querySelectorAll("button").forEach((b, i) => b.classList.toggle("scelto", attuale.valore === i + 1));
+          blocco.classList.remove("in-errore");
+        });
+        scala.appendChild(bottone);
+      }
+      blocco.appendChild(scala);
+
+      if (domanda.etichettaMin || domanda.etichettaMax) {
+        const estremi = document.createElement("div");
+        estremi.className = "estremi";
+        const sx = document.createElement("span");
+        sx.textContent = domanda.etichettaMin ? "1 = " + domanda.etichettaMin : "";
+        const dx = document.createElement("span");
+        dx.textContent = domanda.etichettaMax ? domanda.scalaMax + " = " + domanda.etichettaMax : "";
+        estremi.appendChild(sx);
+        estremi.appendChild(dx);
+        blocco.appendChild(estremi);
+      }
+    }
+
+    const haCommento = domanda.tipo === "commento" || domanda.commento === "facoltativo" || domanda.commento === "obbligatorio";
+    if (haCommento) {
+      const bloccoCommento = document.createElement("div");
+      bloccoCommento.className = "blocco-commento";
+      const etichetta = document.createElement("label");
+      if (domanda.tipo === "commento") {
+        etichetta.textContent = domanda.obbligatoria ? "La tua risposta" : "La tua risposta (facoltativa)";
+      } else {
+        etichetta.textContent = domanda.commento === "obbligatorio" ? "Commento (obbligatorio)" : "Commento (facoltativo)";
+      }
+      const area = document.createElement("textarea");
+      area.maxLength = 2000;
+      area.addEventListener("input", () => {
+        risposte.get(domanda.id).commento = area.value;
+        blocco.classList.remove("in-errore");
+      });
+      bloccoCommento.appendChild(etichetta);
+      bloccoCommento.appendChild(area);
+      blocco.appendChild(bloccoCommento);
+    }
+
+    contenitore.appendChild(blocco);
+  });
+}
+
+// ------------------------------------------------------------
+// Invio
+// ------------------------------------------------------------
+function controlloLocale() {
+  const erroreEl = document.getElementById("errore-invio");
+  let primoErrore = null;
+  domandeCaricate.forEach(domanda => {
+    const r = risposte.get(domanda.id);
+    const commentoPieno = (r.commento || "").trim().length > 0;
+    let mancante = false;
+    if (domanda.tipo === "scala") {
+      if (domanda.obbligatoria && r.valore === null) mancante = true;
+      if (domanda.commento === "obbligatorio" && !commentoPieno) mancante = true;
+    } else if (domanda.obbligatoria && !commentoPieno) {
+      mancante = true;
+    }
+    const blocco = document.querySelector('.domanda[data-id="' + domanda.id + '"]');
+    if (blocco) blocco.classList.toggle("in-errore", mancante);
+    if (mancante && !primoErrore) primoErrore = blocco;
+  });
+  if (primoErrore) {
+    erroreEl.textContent = "Completa le domande evidenziate prima di inviare.";
+    erroreEl.style.display = "block";
+    primoErrore.scrollIntoView({ behavior: "smooth", block: "center" });
+    return false;
+  }
+  erroreEl.style.display = "none";
+  return true;
+}
+
+document.getElementById("btn-invia").addEventListener("click", async () => {
+  if (!controlloLocale()) return;
+  const erroreEl = document.getElementById("errore-invio");
+  const bottone = document.getElementById("btn-invia");
+  bottone.disabled = true;
+  bottone.textContent = "Invio in corso...";
+  erroreEl.style.display = "none";
+  try {
+    await funzioneInvia({
+      idTest: ID_QUESTIONARIO,
+      codice: codiceInUso,
+      risposte: domandeCaricate.map(d => {
+        const r = risposte.get(d.id);
+        return { id: d.id, valore: r.valore, commento: (r.commento || "").trim() };
+      })
+    });
+    mostra("schermata-fine");
+  } catch (errore) {
+    erroreEl.textContent = messaggioDaErrore(errore);
+    erroreEl.style.display = "block";
+    bottone.disabled = false;
+    bottone.textContent = "Invia il questionario";
+  }
+});
+
+avvia();
+</script>
+</body>
+</html>

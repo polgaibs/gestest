@@ -1,0 +1,1059 @@
+<!-- ============================================================
+     QUESTIONARI DI GRADIMENTO ANONIMI, gradimento.html (pannello admin)
+     Pagina separata dal pannello dei quiz, con lo stesso accesso Google
+     riservato. Qui si creano i questionari, si generano e si stampano i
+     codici monouso, si vede quante persone hanno compilato e si leggono
+     i risultati aggregati.
+
+     Struttura su Firestore, tutta riservata all'admin tranne i campi
+     pubblici del documento principale:
+       test/{id}                      pubblico: tipo "gradimento", nome,
+                                      apertura, chiusura, codiciEmessi,
+                                      compilati (solo numeri e date)
+       test/{id}/privato/dati         le domande
+       test/{id}/codici/{codice}      codici monouso, { usato: true/false }
+       test/{id}/risposteAnonime/{x}  risposte, senza codice, senza nome,
+                                      senza orario
+     Gli allievi non toccano mai queste raccolte: usano
+     questionario.html, che passa dalle funzioni iniziaGradimento e
+     inviaGradimento.
+     ============================================================ -->
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Questionari di gradimento, Scuola Pol.G.A.I.</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --blu: #1d3557;
+    --blu-chiaro: #457b9d;
+    --verde: #2a9d8f;
+    --rosso: #e63946;
+    --grigio: #f1f1f1;
+    --oro: #c9a04a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: var(--grigio);
+    color: #1d1d1d;
+  }
+  h1 { color: var(--blu); font-size: 1.4rem; }
+  h2 { color: var(--blu); font-size: 1.1rem; margin-top: 0; }
+  h3 { color: var(--blu); font-size: 1rem; margin: 18px 0 8px 0; }
+  .link-rapidi { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  .link-rapidi a {
+    display: inline-block; background: white; border: 1px solid var(--blu); color: var(--blu);
+    padding: 8px 14px; border-radius: 6px; text-decoration: none; font-size: 0.9rem; font-weight: 600;
+  }
+  .link-rapidi a:hover { background: var(--grigio); }
+  .scheda { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  button {
+    background: var(--blu); color: white; border: none; padding: 9px 14px; border-radius: 6px;
+    cursor: pointer; font-size: 0.9rem; margin: 2px;
+  }
+  button:hover { background: var(--blu-chiaro); }
+  button.secondario { background: white; color: var(--blu); border: 1px solid var(--blu); }
+  button.secondario:hover { background: var(--grigio); }
+  button.pericolo { background: var(--rosso); }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+  label { display: block; margin: 14px 0 6px 0; font-weight: 600; color: var(--blu); }
+  input[type="text"], input[type="number"], input[type="datetime-local"], select, textarea {
+    width: 100%; padding: 10px; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 6px; font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th { text-align: left; background: #eef1f5; color: var(--blu); padding: 8px 10px; white-space: nowrap; }
+  td { padding: 8px 10px; border-top: 1px solid #e5e5e5; vertical-align: middle; }
+  .nascosto { display: none !important; }
+  .nota { color: #666; font-size: 0.88rem; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.8rem; font-weight: 700; color: white; }
+  .badge.aperto { background: var(--verde); }
+  .badge.futuro { background: var(--oro); }
+  .badge.chiuso { background: #888; }
+  .barra-utente { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 0.85rem; color: #555; }
+  #messaggio-globale {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3000;
+    padding: 10px 18px; border-radius: 6px; color: white; font-weight: 600; display: none; max-width: 90vw;
+  }
+  #messaggio-globale.ok { background: var(--verde); display: block; }
+  #messaggio-globale.errore { background: var(--rosso); display: block; }
+  .btn-google {
+    background: white; color: #333; border: 1px solid #ccc; padding: 12px 20px; font-size: 1rem; border-radius: 6px;
+  }
+  .btn-google:hover { background: var(--grigio); }
+  .riquadro-non-autorizzato { margin-top: 14px; background: #fdecea; color: #a12a31; padding: 10px 14px; border-radius: 6px; }
+  .pannello-dettaglio { border: 2px solid var(--blu-chiaro); border-radius: 10px; padding: 16px; margin-top: 16px; background: #fafcfe; }
+
+  /* Editor domande */
+  .riga-domanda { border: 1px solid #d9dfe7; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fcfdff; }
+  .riga-domanda .testata { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .riga-domanda .testata strong { color: var(--blu-chiaro); }
+  .griglia-opzioni { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
+  .griglia-opzioni label { margin: 4px 0; font-size: 0.85rem; }
+  .riga-spunta { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 600; color: var(--blu); }
+  .riga-spunta input { width: auto; }
+
+  /* Risultati */
+  .blocco-risultato { border-top: 1px solid #e0e0e0; padding-top: 14px; margin-top: 14px; }
+  .barra-voto { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 0.85rem; }
+  .barra-voto .etichetta { width: 24px; text-align: right; font-weight: 700; color: var(--blu); }
+  .barra-voto .barra { flex: 1; background: #e8edf2; border-radius: 4px; height: 16px; overflow: hidden; max-width: 420px; }
+  .barra-voto .barra div { background: var(--blu-chiaro); height: 100%; }
+  .barra-voto .numero { width: 90px; color: #555; }
+  .commento { background: #f4f6f9; border-left: 3px solid var(--blu-chiaro); padding: 8px 12px; margin: 6px 0; border-radius: 4px; white-space: pre-wrap; }
+  .media-grande { font-size: 1.6rem; font-weight: 800; color: var(--blu); }
+</style>
+</head>
+<body>
+
+<div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">GRADIMENTO V3 REV. 1</div>
+
+<div id="messaggio-globale"></div>
+
+<div id="schermata-login" class="nascosto">
+  <div class="scheda">
+    <h1 style="margin-top:0;">Questionari di gradimento</h1>
+    <p>Scuola Pol.G.A.I. Brescia</p>
+    <p>Accedi con l'account Google autorizzato per gestire i questionari.</p>
+    <button class="btn-google" id="btn-login-google">Accedi con Google</button>
+    <div id="riquadro-non-autorizzato" class="riquadro-non-autorizzato nascosto"></div>
+  </div>
+</div>
+
+<div id="contenuto-principale" class="nascosto">
+
+<h1>Questionari di gradimento anonimi</h1>
+
+<div class="link-rapidi">
+  <a href="admin.html">Torna al pannello dei quiz</a>
+  <span class="barra-utente">
+    <span id="testo-utente-loggato"></span>
+    <button class="secondario" id="btn-logout">Esci</button>
+  </span>
+</div>
+
+<div class="scheda">
+  <h2>Questionari</h2>
+  <p class="nota" id="testo-ultimo-refresh"></p>
+  <div id="lista-caricamento" class="nota">Caricamento in corso...</div>
+  <div style="overflow-x:auto;">
+    <table id="tabella-questionari" class="nascosto">
+      <thead>
+        <tr>
+          <th>Nome</th><th>Apertura</th><th>Chiusura</th><th>Stato</th><th>Compilati</th><th>Azioni</th>
+        </tr>
+      </thead>
+      <tbody id="corpo-tabella"></tbody>
+    </table>
+  </div>
+  <p id="nessun-questionario" class="nota nascosto">Nessun questionario creato.</p>
+  <div id="area-dettaglio"></div>
+</div>
+
+<div class="scheda" id="scheda-form">
+  <h2 id="titolo-form">Nuovo questionario</h2>
+
+  <label for="campo-nome">Titolo del questionario</label>
+  <input type="text" id="campo-nome" placeholder="Es. Gradimento del corso, ottobre 2026">
+
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
+    <div>
+      <label for="campo-apertura">Apertura (data e ora)</label>
+      <input type="datetime-local" id="campo-apertura">
+      <p class="nota" style="margin:4px 0 0 0;">Se lasci vuoto, è aperto subito.</p>
+    </div>
+    <div>
+      <label for="campo-chiusura">Chiusura (data e ora)</label>
+      <input type="datetime-local" id="campo-chiusura">
+    </div>
+    <div id="blocco-numero-codici">
+      <label for="campo-numero-codici" id="etichetta-numero-codici">Numero di codici da generare</label>
+      <input type="number" id="campo-numero-codici" min="1" max="2000" value="260">
+      <p class="nota" style="margin:4px 0 0 0;" id="nota-numero-codici">Conviene farne qualcuno in più degli allievi, come scorta.</p>
+    </div>
+  </div>
+
+  <h3>Domande</h3>
+  <p class="nota" id="nota-domande-bloccate" style="display:none; color:#a12a31;"></p>
+  <div id="editor-domande"></div>
+  <div style="margin-top:8px;">
+    <button class="secondario" id="btn-aggiungi-domanda">Aggiungi domanda</button>
+    <button class="secondario" id="btn-scarica-modello">Scarica modello Excel</button>
+    <label style="display:inline-block; margin:0 0 0 8px; font-weight:600;">
+      <span class="nota" style="font-weight:600;">Importa domande da Excel:</span>
+      <input type="file" id="file-domande" accept=".xlsx,.xls,.csv" style="width:auto; border:none; padding:4px;">
+    </label>
+  </div>
+  <p class="nota">Colonne del file Excel: NR, DOMANDA, TIPO (SCALA oppure COMMENTO), SCALA_MAX (da 2 a 10), ETICHETTA_MIN, ETICHETTA_MAX, OBBLIGATORIA (SI oppure NO), COMMENTO (NO, FACOLTATIVO oppure OBBLIGATORIO). La scala parte sempre da 1, che è il valore più basso.</p>
+
+  <div style="margin-top:20px;">
+    <button id="btn-salva">Crea questionario</button>
+    <button class="secondario nascosto" id="btn-annulla-modifica">Annulla modifica</button>
+  </div>
+</div>
+
+</div><!-- fine #contenuto-principale -->
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  collection, query, where, writeBatch
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC7sd8dmrLrU5D-wkBB47zGkfdSxDU6Qcc",
+  authDomain: "gestest-v2-fb16b.firebaseapp.com",
+  projectId: "gestest-v2-fb16b",
+  storageBucket: "gestest-v2-fb16b.firebasestorage.app",
+  messagingSenderId: "599095343445",
+  appId: "1:599095343445:web:9d350823aceb9fd43197dc",
+  measurementId: "G-2VB4721H78"
+};
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+const auth = getAuth(appFirebase);
+const providerGoogle = new GoogleAuthProvider();
+
+// Numero minimo di risposte sotto il quale i risultati non vengono
+// mostrati, per non poter riconoscere chi ha risposto quando i
+// partecipanti sono pochissimi.
+const MINIMO_RISPOSTE_PER_RISULTATI = 5;
+const ALFABETO_CODICI = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // senza I, O, 0, 1
+const LUNGHEZZA_CODICE = 8;
+
+const riferimentoTest = (id) => doc(db, "test", id);
+const riferimentoPrivato = (id) => doc(db, "test", id, "privato", "dati");
+const riferimentoCodici = (id) => collection(db, "test", id, "codici");
+const riferimentoRisposte = (id) => collection(db, "test", id, "risposteAnonime");
+
+function escapeHtml(testo) {
+  return String(testo === undefined || testo === null ? "" : testo)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function formattaDataOra(ms) {
+  if (!ms) return "";
+  return new Date(Number(ms)).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function perCampoDataOra(ms) {
+  if (!ms) return "";
+  const d = new Date(Number(ms));
+  const due = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + due(d.getMonth() + 1) + "-" + due(d.getDate()) + "T" + due(d.getHours()) + ":" + due(d.getMinutes());
+}
+function formattaCodice(codice) { return codice.slice(0, 4) + "-" + codice.slice(4); }
+function urlQuestionario(id, codice) {
+  const base = new URL("questionario.html", location.href).href;
+  return base + "?id=" + encodeURIComponent(id) + (codice ? "&c=" + encodeURIComponent(codice) : "");
+}
+
+let timerMessaggio = null;
+function mostraMessaggio(testo, tipo) {
+  const el = document.getElementById("messaggio-globale");
+  el.textContent = testo;
+  el.className = tipo === "errore" ? "errore" : "ok";
+  clearTimeout(timerMessaggio);
+  timerMessaggio = setTimeout(() => { el.className = ""; el.style.display = ""; }, tipo === "errore" ? 7000 : 3500);
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
+document.getElementById("btn-login-google").addEventListener("click", () => {
+  signInWithPopup(auth, providerGoogle).catch(errore => {
+    const el = document.getElementById("riquadro-non-autorizzato");
+    el.classList.remove("nascosto");
+    el.textContent = "Accesso non riuscito: " + (errore && errore.message ? errore.message : errore);
+  });
+});
+document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
+
+onAuthStateChanged(auth, async (utente) => {
+  const login = document.getElementById("schermata-login");
+  const principale = document.getElementById("contenuto-principale");
+  const riquadro = document.getElementById("riquadro-non-autorizzato");
+  if (!utente) {
+    login.classList.remove("nascosto");
+    principale.classList.add("nascosto");
+    return;
+  }
+  try {
+    const admin = await getDoc(doc(db, "admin", utente.email));
+    if (!admin.exists()) {
+      login.classList.remove("nascosto");
+      principale.classList.add("nascosto");
+      riquadro.classList.remove("nascosto");
+      riquadro.textContent = "L'account " + utente.email + " non è autorizzato ad accedere a questo pannello.";
+      await signOut(auth);
+      return;
+    }
+  } catch (errore) {
+    login.classList.remove("nascosto");
+    principale.classList.add("nascosto");
+    riquadro.classList.remove("nascosto");
+    riquadro.textContent = "Errore nel controllo dell'accesso: " + (errore && errore.message ? errore.message : errore);
+    return;
+  }
+  login.classList.add("nascosto");
+  riquadro.classList.add("nascosto");
+  principale.classList.remove("nascosto");
+  document.getElementById("testo-utente-loggato").textContent = utente.email;
+  caricaElenco();
+  avviaRefreshAutomatico();
+});
+
+// ============================================================
+// ELENCO QUESTIONARI
+// ============================================================
+let elencoQuestionari = [];
+
+async function leggiElenco() {
+  const istantanea = await getDocs(query(collection(db, "test"), where("tipo", "==", "gradimento")));
+  const risultato = [];
+  for (const documento of istantanea.docs) {
+    const d = documento.data();
+    const privato = await getDoc(riferimentoPrivato(documento.id));
+    risultato.push({
+      id: documento.id,
+      nome: d.nome || "",
+      aperturaTimestamp: d.aperturaTimestamp || null,
+      chiusuraTimestamp: d.chiusuraTimestamp || null,
+      codiciEmessi: d.codiciEmessi || 0,
+      compilati: d.compilati || 0,
+      dataCreazione: d.dataCreazione || "",
+      domande: privato.exists() ? (privato.data().domande || []) : []
+    });
+  }
+  risultato.sort((a, b) => (b.dataCreazione || "").localeCompare(a.dataCreazione || ""));
+  return risultato;
+}
+
+function statoFinestra(q) {
+  const ora = Date.now();
+  if (q.aperturaTimestamp && ora < q.aperturaTimestamp) return "futuro";
+  if (q.chiusuraTimestamp && ora > q.chiusuraTimestamp) return "chiuso";
+  return "aperto";
+}
+const ETICHETTE_STATO = { futuro: "Non ancora aperto", aperto: "Aperto", chiuso: "Chiuso" };
+
+async function caricaElenco() {
+  try {
+    elencoQuestionari = await leggiElenco();
+  } catch (errore) {
+    document.getElementById("lista-caricamento").textContent =
+      "Errore nel caricamento: " + (errore && errore.message ? errore.message : errore);
+    return;
+  }
+  document.getElementById("lista-caricamento").classList.add("nascosto");
+  disegnaElenco();
+  document.getElementById("testo-ultimo-refresh").textContent =
+    "Ultimo aggiornamento: " + new Date().toLocaleTimeString("it-IT") + ". I numeri si aggiornano da soli.";
+}
+
+function disegnaElenco() {
+  const corpo = document.getElementById("corpo-tabella");
+  corpo.innerHTML = "";
+  document.getElementById("tabella-questionari").classList.toggle("nascosto", elencoQuestionari.length === 0);
+  document.getElementById("nessun-questionario").classList.toggle("nascosto", elencoQuestionari.length !== 0);
+
+  elencoQuestionari.forEach(q => {
+    const stato = statoFinestra(q);
+    const riga = document.createElement("tr");
+    riga.dataset.id = q.id;
+    riga.innerHTML =
+      "<td><strong>" + escapeHtml(q.nome) + "</strong><br><span class='nota'>" + q.domande.length + " domande</span></td>" +
+      "<td>" + (q.aperturaTimestamp ? formattaDataOra(q.aperturaTimestamp) : "subito") + "</td>" +
+      "<td>" + formattaDataOra(q.chiusuraTimestamp) + "</td>" +
+      "<td><span class='badge " + stato + "'>" + ETICHETTE_STATO[stato] + "</span></td>" +
+      "<td data-contatore='" + q.id + "'><strong>" + q.compilati + "</strong> su " + q.codiciEmessi + "</td>" +
+      "<td></td>";
+    const celleAzioni = riga.lastElementChild;
+    [
+      ["Link e QR", () => pannelloLink(q.id)],
+      ["Codici", () => pannelloCodici(q.id)],
+      ["Risultati", () => pannelloRisultati(q.id)],
+      ["Modifica", () => avviaModifica(q.id)],
+      ["Duplica", () => avviaDuplica(q.id)]
+    ].forEach(([testo, azione]) => {
+      const b = document.createElement("button");
+      b.className = "secondario";
+      b.textContent = testo;
+      b.addEventListener("click", azione);
+      celleAzioni.appendChild(b);
+    });
+    if (stato === "aperto") {
+      const b = document.createElement("button");
+      b.className = "secondario";
+      b.textContent = "Chiudi ora";
+      b.addEventListener("click", () => chiudiOra(q.id));
+      celleAzioni.appendChild(b);
+    }
+    const bElimina = document.createElement("button");
+    bElimina.className = "pericolo";
+    bElimina.textContent = "Elimina";
+    bElimina.addEventListener("click", () => pannelloElimina(q.id));
+    celleAzioni.appendChild(bElimina);
+    corpo.appendChild(riga);
+  });
+}
+
+// Aggiorna i contatori senza ridisegnare e senza chiudere i pannelli aperti.
+let timerRefresh = null;
+function avviaRefreshAutomatico() {
+  clearInterval(timerRefresh);
+  timerRefresh = setInterval(async () => {
+    try {
+      const nuovo = await leggiElenco();
+      const stessiId = nuovo.length === elencoQuestionari.length && nuovo.every((q, i) => elencoQuestionari.some(e => e.id === q.id));
+      elencoQuestionari = nuovo;
+      if (!stessiId) { disegnaElenco(); }
+      else {
+        nuovo.forEach(q => {
+          const cella = document.querySelector("[data-contatore='" + q.id + "']");
+          if (cella) cella.innerHTML = "<strong>" + q.compilati + "</strong> su " + q.codiciEmessi;
+        });
+      }
+      document.getElementById("testo-ultimo-refresh").textContent =
+        "Ultimo aggiornamento: " + new Date().toLocaleTimeString("it-IT") + ". I numeri si aggiornano da soli.";
+    } catch (e) { /* un aggiornamento mancato non è un problema */ }
+  }, 15000);
+}
+
+function trovaQuestionario(id) { return elencoQuestionari.find(q => q.id === id); }
+const areaDettaglio = () => document.getElementById("area-dettaglio");
+function chiudiDettaglio() { areaDettaglio().innerHTML = ""; }
+function nuovoPannello(titolo) {
+  const p = document.createElement("div");
+  p.className = "pannello-dettaglio";
+  p.innerHTML = "<div style='display:flex; justify-content:space-between; align-items:center;'><h2 style='margin:0;'>" + escapeHtml(titolo) + "</h2></div>";
+  const chiudi = document.createElement("button");
+  chiudi.className = "secondario";
+  chiudi.textContent = "Chiudi";
+  chiudi.addEventListener("click", chiudiDettaglio);
+  p.firstElementChild.appendChild(chiudi);
+  areaDettaglio().innerHTML = "";
+  areaDettaglio().appendChild(p);
+  p.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return p;
+}
+
+async function chiudiOra(id) {
+  try {
+    await updateDoc(riferimentoTest(id), { chiusuraTimestamp: Date.now() });
+    mostraMessaggio("Questionario chiuso.", "ok");
+    caricaElenco();
+  } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); }
+}
+
+// ============================================================
+// LINK E QR
+// ============================================================
+function pannelloLink(id) {
+  const q = trovaQuestionario(id);
+  if (!q) return;
+  const p = nuovoPannello("Link e QR, " + q.nome);
+  const link = urlQuestionario(id);
+  p.insertAdjacentHTML("beforeend",
+    "<p>Link del questionario, uguale per tutti. Chi lo apre deve comunque inserire il proprio codice monouso.</p>" +
+    "<input type='text' readonly value='" + escapeHtml(link) + "' id='campo-link' onclick='this.select()'>" +
+    "<div style='margin-top:10px;'><button id='btn-copia-link'>Copia il link</button></div>" +
+    "<div id='contenitore-qr' style='margin-top:16px;'></div>" +
+    "<p class='nota'>Il QR qui sopra porta alla pagina di inserimento del codice. Sui bigliettini stampati, invece, ogni QR contiene già il codice di quel biglietto.</p>");
+  new QRCode(p.querySelector("#contenitore-qr"), { text: link, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+  p.querySelector("#btn-copia-link").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(link); mostraMessaggio("Link copiato.", "ok"); }
+    catch (e) { p.querySelector("#campo-link").select(); mostraMessaggio("Seleziona e copia il link a mano.", "errore"); }
+  });
+}
+
+// ============================================================
+// CODICI MONOUSO
+// ============================================================
+function generaCodiceCasuale() {
+  const byte = new Uint8Array(LUNGHEZZA_CODICE);
+  crypto.getRandomValues(byte);
+  let codice = "";
+  for (let i = 0; i < LUNGHEZZA_CODICE; i++) codice += ALFABETO_CODICI[byte[i] % ALFABETO_CODICI.length];
+  return codice;
+}
+
+async function aggiungiCodici(id, quanti) {
+  const esistenti = new Set();
+  (await getDocs(riferimentoCodici(id))).forEach(d => esistenti.add(d.id));
+  const nuovi = [];
+  while (nuovi.length < quanti) {
+    const c = generaCodiceCasuale();
+    if (!esistenti.has(c)) { esistenti.add(c); nuovi.push(c); }
+  }
+  for (let i = 0; i < nuovi.length; i += 400) {
+    const batch = writeBatch(db);
+    nuovi.slice(i, i + 400).forEach(c => batch.set(doc(riferimentoCodici(id), c), { usato: false }));
+    await batch.commit();
+  }
+  // Aggiorno il contatore pubblico dei codici emessi con il totale reale.
+  await updateDoc(riferimentoTest(id), { codiciEmessi: esistenti.size });
+  return nuovi.length;
+}
+
+async function leggiCodici(id) {
+  const istantanea = await getDocs(riferimentoCodici(id));
+  const elenco = [];
+  istantanea.forEach(d => elenco.push({ codice: d.id, usato: !!d.data().usato }));
+  elenco.sort((a, b) => a.codice.localeCompare(b.codice));
+  return elenco;
+}
+
+async function pannelloCodici(id) {
+  const q = trovaQuestionario(id);
+  if (!q) return;
+  const p = nuovoPannello("Codici monouso, " + q.nome);
+  p.insertAdjacentHTML("beforeend", "<p class='nota'>Caricamento...</p>");
+  let codici;
+  try { codici = await leggiCodici(id); } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); return; }
+  const usati = codici.filter(c => c.usato).length;
+  const liberi = codici.length - usati;
+  p.innerHTML = "";
+  const titolo = document.createElement("div");
+  titolo.style.cssText = "display:flex; justify-content:space-between; align-items:center;";
+  titolo.innerHTML = "<h2 style='margin:0;'>Codici monouso, " + escapeHtml(q.nome) + "</h2>";
+  const chiudi = document.createElement("button");
+  chiudi.className = "secondario"; chiudi.textContent = "Chiudi"; chiudi.addEventListener("click", chiudiDettaglio);
+  titolo.appendChild(chiudi);
+  p.appendChild(titolo);
+
+  p.insertAdjacentHTML("beforeend",
+    "<p><strong>" + codici.length + "</strong> codici in tutto, <strong>" + usati + "</strong> già usati, <strong>" + liberi + "</strong> ancora disponibili.</p>" +
+    "<p class='nota'>Per mantenere l'anonimato, consegna i bigliettini estraendoli da una pila mescolata, senza segnare a chi va quale codice.</p>" +
+    "<div id='azioni-codici'></div>" +
+    "<h3>Aggiungi altri codici</h3>" +
+    "<div style='display:flex; gap:8px; align-items:center; max-width:360px;'><input type='number' id='campo-altri-codici' min='1' max='2000' value='10'><button id='btn-altri-codici'>Genera</button></div>");
+  const azioni = p.querySelector("#azioni-codici");
+  const crea = (testo, classe, fn) => {
+    const b = document.createElement("button");
+    if (classe) b.className = classe;
+    b.textContent = testo;
+    b.addEventListener("click", fn);
+    azioni.appendChild(b);
+  };
+  crea("Stampa i bigliettini (solo codici non usati)", "", () => stampaBigliettini(q, codici.filter(c => !c.usato)));
+  crea("Stampa tutti i bigliettini", "secondario", () => stampaBigliettini(q, codici));
+  crea("Scarica i codici in Excel", "secondario", () => scaricaCodiciExcel(q, codici));
+
+  p.querySelector("#btn-altri-codici").addEventListener("click", async () => {
+    const n = parseInt(p.querySelector("#campo-altri-codici").value, 10);
+    if (!(n >= 1 && n <= 2000)) { mostraMessaggio("Indica un numero da 1 a 2000.", "errore"); return; }
+    try {
+      await aggiungiCodici(id, n);
+      mostraMessaggio(n + " codici aggiunti.", "ok");
+      await caricaElenco();
+      pannelloCodici(id);
+    } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); }
+  });
+}
+
+function scaricaCodiciExcel(q, codici) {
+  const righe = codici.map(c => ({ CODICE: formattaCodice(c.codice), LINK: urlQuestionario(q.id, c.codice), USATO: c.usato ? "SI" : "NO" }));
+  const foglio = XLSX.utils.json_to_sheet(righe);
+  foglio["!cols"] = [{ wch: 14 }, { wch: 80 }, { wch: 8 }];
+  const cartella = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(cartella, foglio, "Codici");
+  XLSX.writeFile(cartella, "Codici - " + q.nome + ".xlsx");
+}
+
+function codiceQrComeImmagine(testo) {
+  const contenitore = document.createElement("div");
+  contenitore.style.cssText = "position:fixed; left:-9999px; top:0;";
+  document.body.appendChild(contenitore);
+  new QRCode(contenitore, { text: testo, width: 150, height: 150, correctLevel: QRCode.CorrectLevel.M });
+  const canvas = contenitore.querySelector("canvas");
+  const url = canvas ? canvas.toDataURL("image/png") : "";
+  contenitore.remove();
+  return url;
+}
+
+function stampaBigliettini(q, codici) {
+  if (codici.length === 0) { mostraMessaggio("Non ci sono codici da stampare.", "errore"); return; }
+  const finestra = window.open("", "_blank");
+  if (!finestra) { mostraMessaggio("Il browser ha bloccato la finestra di stampa. Consenti i popup per questa pagina.", "errore"); return; }
+  const periodo = (q.aperturaTimestamp ? "dal " + formattaDataOra(q.aperturaTimestamp) + " " : "") + "fino al " + formattaDataOra(q.chiusuraTimestamp);
+  const base = new URL("questionario.html", location.href).href;
+  const bigliettini = codici.map(c => {
+    const qr = codiceQrComeImmagine(urlQuestionario(q.id, c.codice));
+    return "<div class='biglietto'>" +
+      "<div class='titolo'>" + escapeHtml(q.nome) + "</div>" +
+      "<div class='sotto'>Questionario anonimo, codice monouso</div>" +
+      "<div class='corpo'><img src='" + qr + "' alt=''><div class='codice'>" + formattaCodice(c.codice) + "</div></div>" +
+      "<div class='istruzioni'>Inquadra il QR oppure vai su<br><strong>" + escapeHtml(base) + "</strong><br>e scrivi il codice.</div>" +
+      "<div class='periodo'>Compilabile " + escapeHtml(periodo) + "</div>" +
+      "</div>";
+  }).join("");
+  finestra.document.write(
+    "<!DOCTYPE html><html lang='it'><head><meta charset='UTF-8'><title>Bigliettini, " + escapeHtml(q.nome) + "</title><style>" +
+    "@page { size: A4; margin: 8mm; }" +
+    "body { font-family: 'Segoe UI', Arial, sans-serif; margin:0; }" +
+    ".griglia { display:grid; grid-template-columns: 1fr 1fr; }" +
+    ".biglietto { height: 56mm; border: 1px dashed #777; padding: 4mm 5mm; box-sizing: border-box; break-inside: avoid; display:flex; flex-direction:column; justify-content:space-between; }" +
+    ".titolo { font-weight:700; font-size: 11pt; color:#1d3557; }" +
+    ".sotto { font-size: 8pt; color:#555; }" +
+    ".corpo { display:flex; align-items:center; gap:5mm; }" +
+    ".corpo img { width: 24mm; height: 24mm; }" +
+    ".codice { font-family: Consolas, 'Courier New', monospace; font-size: 20pt; font-weight:800; letter-spacing: 2px; }" +
+    ".istruzioni { font-size: 7.5pt; color:#333; word-break: break-all; }" +
+    ".periodo { font-size: 7.5pt; color:#555; }" +
+    "@media screen { body { padding: 10mm; } .nota-schermo { background:#fff4d6; padding:8px 12px; margin-bottom:10px; border-radius:6px; font-size:13px; } }" +
+    "@media print { .nota-schermo { display:none; } }" +
+    "</style></head><body>" +
+    "<div class='nota-schermo'>Premi Ctrl+P per stampare. Sono previsti 10 bigliettini per foglio A4, da ritagliare lungo le linee tratteggiate. Dopo la stampa puoi chiudere questa scheda.</div>" +
+    "<div class='griglia'>" + bigliettini + "</div></body></html>");
+  finestra.document.close();
+}
+
+// ============================================================
+// RISULTATI
+// ============================================================
+function mescola(array) {
+  const copia = array.slice();
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+async function calcolaRisultati(q) {
+  const istantanea = await getDocs(riferimentoRisposte(q.id));
+  const tutte = [];
+  istantanea.forEach(d => tutte.push(d.data().risposte || []));
+  const perDomanda = q.domande.map(domanda => {
+    const valori = [];
+    const commenti = [];
+    tutte.forEach(set => {
+      const r = set.find(x => x.id === domanda.id);
+      if (!r) return;
+      if (Number.isInteger(r.valore)) valori.push(r.valore);
+      if (r.commento && String(r.commento).trim()) commenti.push(String(r.commento).trim());
+    });
+    const scalaMax = domanda.tipo === "commento" ? 0 : Number(domanda.scalaMax) || 5;
+    const distribuzione = [];
+    for (let n = 1; n <= scalaMax; n++) distribuzione.push(valori.filter(v => v === n).length);
+    const media = valori.length ? valori.reduce((a, b) => a + b, 0) / valori.length : null;
+    return { domanda, valori: valori.length, media, distribuzione, scalaMax, commenti: mescola(commenti) };
+  });
+  return { numeroRisposte: tutte.length, perDomanda };
+}
+
+async function pannelloRisultati(id) {
+  const q = trovaQuestionario(id);
+  if (!q) return;
+  const p = nuovoPannello("Risultati, " + q.nome);
+  p.insertAdjacentHTML("beforeend", "<p class='nota'>Caricamento...</p>");
+  let ris;
+  try { ris = await calcolaRisultati(q); } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); return; }
+
+  p.innerHTML = "";
+  const titolo = document.createElement("div");
+  titolo.style.cssText = "display:flex; justify-content:space-between; align-items:center;";
+  titolo.innerHTML = "<h2 style='margin:0;'>Risultati, " + escapeHtml(q.nome) + "</h2>";
+  const chiudi = document.createElement("button");
+  chiudi.className = "secondario"; chiudi.textContent = "Chiudi"; chiudi.addEventListener("click", chiudiDettaglio);
+  titolo.appendChild(chiudi);
+  p.appendChild(titolo);
+
+  p.insertAdjacentHTML("beforeend", "<p><strong>" + ris.numeroRisposte + "</strong> questionari compilati su " + q.codiciEmessi + " codici emessi.</p>");
+
+  if (ris.numeroRisposte < MINIMO_RISPOSTE_PER_RISULTATI) {
+    p.insertAdjacentHTML("beforeend",
+      "<p class='nota'>I risultati si vedono a partire da " + MINIMO_RISPOSTE_PER_RISULTATI +
+      " questionari compilati. Con pochissime risposte sarebbe possibile riconoscere chi le ha date, e questo contraddirebbe l'anonimato.</p>");
+    return;
+  }
+
+  const azioni = document.createElement("div");
+  const bExcel = document.createElement("button");
+  bExcel.textContent = "Scarica i risultati in Excel";
+  bExcel.addEventListener("click", () => scaricaRisultatiExcel(q, ris));
+  azioni.appendChild(bExcel);
+  p.appendChild(azioni);
+
+  ris.perDomanda.forEach((r, indice) => {
+    const blocco = document.createElement("div");
+    blocco.className = "blocco-risultato";
+    let html = "<strong>" + (indice + 1) + ". " + escapeHtml(r.domanda.testo) + "</strong>";
+    if (r.domanda.tipo !== "commento") {
+      html += "<div style='margin:8px 0;'><span class='media-grande'>" + (r.media === null ? "n.d." : r.media.toFixed(2).replace(".", ",")) +
+        "</span> <span class='nota'>media su " + r.scalaMax + " (" + r.valori + " risposte)</span></div>";
+      const massimo = Math.max.apply(null, r.distribuzione.concat([1]));
+      r.distribuzione.forEach((conteggio, i) => {
+        const percentuale = r.valori ? Math.round((conteggio / r.valori) * 100) : 0;
+        html += "<div class='barra-voto'><span class='etichetta'>" + (i + 1) + "</span><div class='barra'><div style='width:" + ((conteggio / massimo) * 100) + "%'></div></div><span class='numero'>" + conteggio + " (" + percentuale + "%)</span></div>";
+      });
+      if (r.domanda.etichettaMin || r.domanda.etichettaMax) {
+        html += "<p class='nota' style='margin:6px 0 0 0;'>1 = " + escapeHtml(r.domanda.etichettaMin || "") + (r.domanda.etichettaMax ? ", " + r.scalaMax + " = " + escapeHtml(r.domanda.etichettaMax) : "") + "</p>";
+      }
+    }
+    if (r.commenti.length) {
+      html += "<h3>" + (r.domanda.tipo === "commento" ? "Risposte" : "Commenti") + " (" + r.commenti.length + ", in ordine casuale)</h3>";
+      r.commenti.forEach(c => { html += "<div class='commento'>" + escapeHtml(c) + "</div>"; });
+    }
+    blocco.innerHTML = html;
+    p.appendChild(blocco);
+  });
+}
+
+function scaricaRisultatiExcel(q, ris) {
+  const massimoScala = Math.max.apply(null, ris.perDomanda.map(r => r.scalaMax).concat([0]));
+  const righeRiepilogo = ris.perDomanda.map((r, i) => {
+    const riga = {
+      NR: i + 1,
+      DOMANDA: r.domanda.testo,
+      TIPO: r.domanda.tipo === "commento" ? "COMMENTO" : "SCALA 1 A " + r.scalaMax,
+      RISPOSTE: r.domanda.tipo === "commento" ? r.commenti.length : r.valori,
+      MEDIA: r.media === null ? "" : Math.round(r.media * 100) / 100
+    };
+    for (let n = 1; n <= massimoScala; n++) riga["VOTO " + n] = n <= r.scalaMax ? r.distribuzione[n - 1] : "";
+    return riga;
+  });
+  const righeCommenti = [];
+  ris.perDomanda.forEach((r, i) => r.commenti.forEach(c => righeCommenti.push({ NR: i + 1, DOMANDA: r.domanda.testo, COMMENTO: c })));
+  const cartella = XLSX.utils.book_new();
+  const fogli = XLSX.utils.json_to_sheet(righeRiepilogo);
+  fogli["!cols"] = [{ wch: 5 }, { wch: 60 }, { wch: 16 }, { wch: 10 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(cartella, fogli, "Riepilogo");
+  if (righeCommenti.length) {
+    const fCommenti = XLSX.utils.json_to_sheet(righeCommenti);
+    fCommenti["!cols"] = [{ wch: 5 }, { wch: 50 }, { wch: 100 }];
+    XLSX.utils.book_append_sheet(cartella, fCommenti, "Commenti");
+  }
+  const info = XLSX.utils.aoa_to_sheet([
+    ["Questionario", q.nome],
+    ["Compilati", ris.numeroRisposte],
+    ["Codici emessi", q.codiciEmessi],
+    ["Apertura", q.aperturaTimestamp ? formattaDataOra(q.aperturaTimestamp) : "subito"],
+    ["Chiusura", formattaDataOra(q.chiusuraTimestamp)],
+    ["Nota", "Risposte anonime, senza nomi né orari. I commenti sono in ordine casuale."]
+  ]);
+  info["!cols"] = [{ wch: 16 }, { wch: 90 }];
+  XLSX.utils.book_append_sheet(cartella, info, "Informazioni");
+  XLSX.writeFile(cartella, "Risultati - " + q.nome + ".xlsx");
+}
+
+// ============================================================
+// ELIMINAZIONE
+// ============================================================
+function pannelloElimina(id) {
+  const q = trovaQuestionario(id);
+  if (!q) return;
+  const p = nuovoPannello("Eliminare questo questionario?");
+  p.insertAdjacentHTML("beforeend",
+    "<p>Questionario: <strong>" + escapeHtml(q.nome) + "</strong></p>" +
+    "<p class='nota'>L'eliminazione cancella i codici e tutte le risposte raccolte, e non può essere annullata. Se servono i risultati, scaricali prima in Excel dal pulsante Risultati.</p>");
+  const conferma = document.createElement("button");
+  conferma.className = "pericolo";
+  conferma.textContent = "Elimina definitivamente";
+  conferma.addEventListener("click", async () => {
+    conferma.disabled = true;
+    try {
+      await eliminaQuestionario(id);
+      mostraMessaggio("Questionario eliminato.", "ok");
+      chiudiDettaglio();
+      caricaElenco();
+    } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); conferma.disabled = false; }
+  });
+  p.appendChild(conferma);
+}
+
+async function svuota(riferimentoCollezione) {
+  const istantanea = await getDocs(riferimentoCollezione);
+  for (let i = 0; i < istantanea.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    istantanea.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+async function eliminaQuestionario(id) {
+  await svuota(riferimentoCodici(id));
+  await svuota(riferimentoRisposte(id));
+  await deleteDoc(riferimentoPrivato(id));
+  await deleteDoc(riferimentoTest(id));
+}
+
+// ============================================================
+// EDITOR DELLE DOMANDE
+// ============================================================
+let domandeForm = [];
+let idInModifica = null;
+let domandeBloccate = false;
+
+function domandaVuota() {
+  return { testo: "", tipo: "scala", scalaMax: 5, etichettaMin: "", etichettaMax: "", obbligatoria: true, commento: "no" };
+}
+
+function disegnaEditor() {
+  const contenitore = document.getElementById("editor-domande");
+  contenitore.innerHTML = "";
+  domandeForm.forEach((d, indice) => {
+    const riga = document.createElement("div");
+    riga.className = "riga-domanda";
+    const soloCommento = d.tipo === "commento";
+    riga.innerHTML =
+      "<div class='testata'><strong>Domanda " + (indice + 1) + "</strong><span class='comandi'></span></div>" +
+      "<textarea data-campo='testo' placeholder='Testo della domanda'" + (domandeBloccate ? " disabled" : "") + ">" + escapeHtml(d.testo) + "</textarea>" +
+      "<div class='griglia-opzioni'>" +
+        "<div><label>Tipo di risposta</label><select data-campo='tipo'" + (domandeBloccate ? " disabled" : "") + ">" +
+          "<option value='scala'" + (soloCommento ? "" : " selected") + ">Scala da 1 a N</option>" +
+          "<option value='commento'" + (soloCommento ? " selected" : "") + ">Solo commento libero</option></select></div>" +
+        (soloCommento ? "" :
+        "<div><label>N, valore massimo</label><select data-campo='scalaMax'" + (domandeBloccate ? " disabled" : "") + ">" +
+          [2,3,4,5,6,7,8,9,10].map(n => "<option value='" + n + "'" + (Number(d.scalaMax) === n ? " selected" : "") + ">" + n + "</option>").join("") + "</select></div>" +
+        "<div><label>Etichetta di 1 (facoltativa)</label><input type='text' data-campo='etichettaMin' value='" + escapeHtml(d.etichettaMin) + "' placeholder='Es. Per niente'" + (domandeBloccate ? " disabled" : "") + "></div>" +
+        "<div><label>Etichetta di N (facoltativa)</label><input type='text' data-campo='etichettaMax' value='" + escapeHtml(d.etichettaMax) + "' placeholder='Es. Moltissimo'" + (domandeBloccate ? " disabled" : "") + "></div>" +
+        "<div><label>Commento</label><select data-campo='commento'" + (domandeBloccate ? " disabled" : "") + ">" +
+          "<option value='no'" + (d.commento === "no" ? " selected" : "") + ">Nessun commento</option>" +
+          "<option value='facoltativo'" + (d.commento === "facoltativo" ? " selected" : "") + ">Commento facoltativo</option>" +
+          "<option value='obbligatorio'" + (d.commento === "obbligatorio" ? " selected" : "") + ">Commento obbligatorio</option></select></div>") +
+      "</div>" +
+      "<div class='riga-spunta'><input type='checkbox' data-campo='obbligatoria' id='obb-" + indice + "'" + (d.obbligatoria ? " checked" : "") + (domandeBloccate ? " disabled" : "") +
+      "><label for='obb-" + indice + "' style='margin:0;'>" + (soloCommento ? "Risposta obbligatoria" : "Domanda obbligatoria, non si può saltare") + "</label></div>";
+
+    if (!domandeBloccate) {
+      const comandi = riga.querySelector(".comandi");
+      const bottone = (testo, fn, classe) => {
+        const b = document.createElement("button");
+        b.className = classe || "secondario";
+        b.textContent = testo;
+        b.addEventListener("click", fn);
+        comandi.appendChild(b);
+      };
+      bottone("Su", () => { if (indice > 0) { [domandeForm[indice - 1], domandeForm[indice]] = [domandeForm[indice], domandeForm[indice - 1]]; disegnaEditor(); } });
+      bottone("Giù", () => { if (indice < domandeForm.length - 1) { [domandeForm[indice + 1], domandeForm[indice]] = [domandeForm[indice], domandeForm[indice + 1]]; disegnaEditor(); } });
+      bottone("Elimina", () => { domandeForm.splice(indice, 1); disegnaEditor(); }, "pericolo");
+    }
+
+    riga.querySelectorAll("[data-campo]").forEach(campo => {
+      const evento = (campo.tagName === "SELECT" || campo.type === "checkbox") ? "change" : "input";
+      campo.addEventListener(evento, () => {
+        const nome = campo.dataset.campo;
+        if (campo.type === "checkbox") d[nome] = campo.checked;
+        else if (nome === "scalaMax") d[nome] = parseInt(campo.value, 10);
+        else d[nome] = campo.value;
+        if (nome === "tipo") disegnaEditor();
+      });
+    });
+    contenitore.appendChild(riga);
+  });
+  document.getElementById("btn-aggiungi-domanda").disabled = domandeBloccate;
+}
+
+document.getElementById("btn-aggiungi-domanda").addEventListener("click", () => {
+  domandeForm.push(domandaVuota());
+  disegnaEditor();
+});
+
+// Modello Excel e importazione
+document.getElementById("btn-scarica-modello").addEventListener("click", () => {
+  const righe = [
+    { NR: 1, DOMANDA: "Come valuti la chiarezza delle lezioni?", TIPO: "SCALA", SCALA_MAX: 5, ETICHETTA_MIN: "Per niente chiare", ETICHETTA_MAX: "Molto chiare", OBBLIGATORIA: "SI", COMMENTO: "FACOLTATIVO" },
+    { NR: 2, DOMANDA: "Come valuti l'organizzazione generale del corso?", TIPO: "SCALA", SCALA_MAX: 10, ETICHETTA_MIN: "Pessima", ETICHETTA_MAX: "Ottima", OBBLIGATORIA: "SI", COMMENTO: "NO" },
+    { NR: 3, DOMANDA: "Cosa cambieresti del corso?", TIPO: "COMMENTO", SCALA_MAX: "", ETICHETTA_MIN: "", ETICHETTA_MAX: "", OBBLIGATORIA: "NO", COMMENTO: "" }
+  ];
+  const foglio = XLSX.utils.json_to_sheet(righe);
+  foglio["!cols"] = [{ wch: 5 }, { wch: 55 }, { wch: 11 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 13 }, { wch: 14 }];
+  const cartella = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(cartella, foglio, "Domande");
+  XLSX.writeFile(cartella, "Modello domande questionario.xlsx");
+});
+
+function leggiCella(riga, nomi) {
+  for (const n of nomi) {
+    const chiave = Object.keys(riga).find(k => k.trim().toUpperCase().replace(/\s+/g, "_") === n);
+    if (chiave !== undefined) return riga[chiave];
+  }
+  return "";
+}
+
+document.getElementById("file-domande").addEventListener("change", (evento) => {
+  const file = evento.target.files[0];
+  if (!file) return;
+  if (domandeBloccate) { mostraMessaggio("Le domande non si possono più cambiare perché ci sono già risposte.", "errore"); evento.target.value = ""; return; }
+  const lettore = new FileReader();
+  lettore.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: "array" });
+      const righe = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      const importate = [];
+      righe.forEach(riga => {
+        const testo = String(leggiCella(riga, ["DOMANDA"])).trim();
+        if (!testo) return;
+        const tipoLetto = String(leggiCella(riga, ["TIPO"])).trim().toUpperCase();
+        const tipo = tipoLetto.startsWith("COMM") ? "commento" : "scala";
+        let scalaMax = parseInt(leggiCella(riga, ["SCALA_MAX", "SCALA"]), 10);
+        if (!(scalaMax >= 2 && scalaMax <= 10)) scalaMax = 5;
+        const obbligatoriaLetta = String(leggiCella(riga, ["OBBLIGATORIA"])).trim().toUpperCase();
+        const commentoLetto = String(leggiCella(riga, ["COMMENTO"])).trim().toUpperCase();
+        importate.push({
+          testo, tipo,
+          scalaMax: tipo === "scala" ? scalaMax : 5,
+          etichettaMin: tipo === "scala" ? String(leggiCella(riga, ["ETICHETTA_MIN"])).trim() : "",
+          etichettaMax: tipo === "scala" ? String(leggiCella(riga, ["ETICHETTA_MAX"])).trim() : "",
+          obbligatoria: obbligatoriaLetta === "" ? true : (obbligatoriaLetta === "SI" || obbligatoriaLetta === "SÌ" || obbligatoriaLetta === "S"),
+          commento: tipo === "scala" ? (commentoLetto.startsWith("OBB") ? "obbligatorio" : commentoLetto.startsWith("FAC") ? "facoltativo" : "no") : "no"
+        });
+      });
+      if (importate.length === 0) { mostraMessaggio("Nel file non ho trovato domande. Controlla la colonna DOMANDA.", "errore"); }
+      else {
+        domandeForm = importate;
+        disegnaEditor();
+        mostraMessaggio(importate.length + " domande importate.", "ok");
+      }
+    } catch (errore) {
+      mostraMessaggio("File non leggibile: " + errore.message, "errore");
+    }
+    evento.target.value = "";
+  };
+  lettore.readAsArrayBuffer(file);
+});
+
+// ============================================================
+// CREAZIONE, MODIFICA E DUPLICAZIONE
+// ============================================================
+function azzeraForm() {
+  idInModifica = null;
+  domandeBloccate = false;
+  document.getElementById("titolo-form").textContent = "Nuovo questionario";
+  document.getElementById("btn-salva").textContent = "Crea questionario";
+  document.getElementById("btn-annulla-modifica").classList.add("nascosto");
+  document.getElementById("campo-nome").value = "";
+  document.getElementById("campo-apertura").value = "";
+  document.getElementById("campo-chiusura").value = "";
+  document.getElementById("campo-numero-codici").value = 260;
+  document.getElementById("campo-numero-codici").disabled = false;
+  document.getElementById("etichetta-numero-codici").textContent = "Numero di codici da generare";
+  document.getElementById("nota-numero-codici").textContent = "Conviene farne qualcuno in più degli allievi, come scorta.";
+  document.getElementById("nota-domande-bloccate").style.display = "none";
+  domandeForm = [domandaVuota()];
+  disegnaEditor();
+}
+
+function avviaDuplica(id) {
+  const q = trovaQuestionario(id);
+  if (!q) return;
+  azzeraForm();
+  document.getElementById("campo-nome").value = q.nome + " (copia)";
+  domandeForm = q.domande.map(d => ({ ...domandaVuota(), ...d }));
+  disegnaEditor();
+  document.getElementById("scheda-form").scrollIntoView({ behavior: "smooth" });
+  mostraMessaggio("Copia pronta: imposta le date e il numero di codici, poi crea.", "ok");
+}
+
+async function avviaModifica(id) {
+  const q = trovaQuestionario(id);
+  if (!q) return;
+  azzeraForm();
+  idInModifica = id;
+  document.getElementById("titolo-form").textContent = "Modifica questionario";
+  document.getElementById("btn-salva").textContent = "Salva modifiche";
+  document.getElementById("btn-annulla-modifica").classList.remove("nascosto");
+  document.getElementById("campo-nome").value = q.nome;
+  document.getElementById("campo-apertura").value = perCampoDataOra(q.aperturaTimestamp);
+  document.getElementById("campo-chiusura").value = perCampoDataOra(q.chiusuraTimestamp);
+  document.getElementById("etichetta-numero-codici").textContent = "Codici già emessi";
+  document.getElementById("campo-numero-codici").value = q.codiciEmessi;
+  document.getElementById("campo-numero-codici").disabled = true;
+  document.getElementById("nota-numero-codici").textContent = "Per aggiungerne altri usa il pulsante Codici nell'elenco.";
+  domandeForm = q.domande.map(d => ({ ...domandaVuota(), ...d }));
+  // Le domande si cambiano solo finché nessuno ha compilato: modificarle dopo
+  // renderebbe incoerenti le risposte già raccolte.
+  const fresco = await getDoc(riferimentoTest(id));
+  domandeBloccate = fresco.exists() && (fresco.data().compilati || 0) > 0;
+  const nota = document.getElementById("nota-domande-bloccate");
+  if (domandeBloccate) {
+    nota.style.display = "block";
+    nota.textContent = "Le domande non si possono più modificare perché ci sono già questionari compilati. Puoi cambiare titolo e date.";
+  }
+  disegnaEditor();
+  document.getElementById("scheda-form").scrollIntoView({ behavior: "smooth" });
+}
+
+document.getElementById("btn-annulla-modifica").addEventListener("click", () => {
+  document.getElementById("campo-numero-codici").disabled = false;
+  azzeraForm();
+});
+
+function leggiEValidaDomande() {
+  if (domandeForm.length === 0) throw new Error("Inserisci almeno una domanda.");
+  return domandeForm.map((d, i) => {
+    const testo = (d.testo || "").trim();
+    if (!testo) throw new Error("La domanda " + (i + 1) + " non ha il testo.");
+    const soloCommento = d.tipo === "commento";
+    const scalaMax = parseInt(d.scalaMax, 10);
+    if (!soloCommento && !(scalaMax >= 2 && scalaMax <= 10)) throw new Error("La scala della domanda " + (i + 1) + " deve andare da 2 a 10.");
+    return {
+      id: "q" + (i + 1),
+      testo,
+      tipo: soloCommento ? "commento" : "scala",
+      scalaMax: soloCommento ? null : scalaMax,
+      etichettaMin: soloCommento ? "" : (d.etichettaMin || "").trim(),
+      etichettaMax: soloCommento ? "" : (d.etichettaMax || "").trim(),
+      obbligatoria: !!d.obbligatoria,
+      commento: soloCommento ? "no" : (["facoltativo", "obbligatorio"].includes(d.commento) ? d.commento : "no")
+    };
+  });
+}
+
+document.getElementById("btn-salva").addEventListener("click", async () => {
+  const bottone = document.getElementById("btn-salva");
+  try {
+    const nome = document.getElementById("campo-nome").value.trim();
+    if (!nome) throw new Error("Inserisci il titolo del questionario.");
+    const valoreApertura = document.getElementById("campo-apertura").value;
+    const valoreChiusura = document.getElementById("campo-chiusura").value;
+    if (!valoreChiusura) throw new Error("Indica la data e l'ora di chiusura.");
+    const aperturaTimestamp = valoreApertura ? new Date(valoreApertura).getTime() : null;
+    const chiusuraTimestamp = new Date(valoreChiusura).getTime();
+    if (aperturaTimestamp && chiusuraTimestamp <= aperturaTimestamp) throw new Error("La chiusura deve essere dopo l'apertura.");
+    const domande = domandeBloccate ? null : leggiEValidaDomande();
+
+    bottone.disabled = true;
+    if (idInModifica) {
+      await updateDoc(riferimentoTest(idInModifica), { nome, aperturaTimestamp, chiusuraTimestamp });
+      if (domande) await setDoc(riferimentoPrivato(idInModifica), { domande }, { merge: true });
+      mostraMessaggio("Modifiche salvate.", "ok");
+      document.getElementById("campo-numero-codici").disabled = false;
+    } else {
+      const numeroCodici = parseInt(document.getElementById("campo-numero-codici").value, 10);
+      if (!(numeroCodici >= 1 && numeroCodici <= 2000)) throw new Error("Il numero di codici deve essere tra 1 e 2000.");
+      const id = "G" + Math.random().toString(36).substring(2, 10);
+      await setDoc(riferimentoTest(id), {
+        tipo: "gradimento",
+        nome, aperturaTimestamp, chiusuraTimestamp,
+        codiciEmessi: 0, compilati: 0,
+        attivo: false,
+        dataCreazione: new Date().toISOString()
+      });
+      await setDoc(riferimentoPrivato(id), { domande, pin: "" });
+      await aggiungiCodici(id, numeroCodici);
+      mostraMessaggio("Questionario creato con " + numeroCodici + " codici. Usa il pulsante Codici per stamparli.", "ok");
+    }
+    azzeraForm();
+    await caricaElenco();
+  } catch (errore) {
+    mostraMessaggio(errore.message || String(errore), "errore");
+  } finally {
+    bottone.disabled = false;
+  }
+});
+
+azzeraForm();
+</script>
+</body>
+</html>
