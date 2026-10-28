@@ -113,7 +113,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">GRADIMENTO V3 REV. 2</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">GRADIMENTO V3 REV. 3</div>
 
 <div id="messaggio-globale"></div>
 
@@ -719,18 +719,42 @@ function disegnaRisultati(p, q, ris) {
   p.insertAdjacentHTML("beforeend", "<p><strong>" + ris.numeroRisposte + "</strong> questionari compilati su " + q.codiciEmessi + " codici emessi.</p>" +
     "<p class='nota'>Ultimo aggiornamento: " + new Date().toLocaleTimeString("it-IT") + ". Il pannello si aggiorna da solo ogni 30 secondi.</p>");
 
-  if (ris.numeroRisposte < MINIMO_RISPOSTE_PER_RISULTATI) {
-    p.insertAdjacentHTML("beforeend",
-      "<p class='nota'>I risultati si vedono a partire da " + MINIMO_RISPOSTE_PER_RISULTATI +
-      " questionari compilati. Con pochissime risposte sarebbe possibile riconoscere chi le ha date, e questo contraddirebbe l'anonimato.</p>");
+  // A questionario aperto i risultati compaiono solo da MINIMO_RISPOSTE_PER_RISULTATI
+  // risposte. A questionario chiuso (scaduto o chiuso con "Chiudi ora") non possono
+  // più arrivare risposte e si vede tutto quello che c'è.
+  const eChiuso = statoFinestra(q) === "chiuso";
+  if (ris.numeroRisposte === 0) {
+    p.insertAdjacentHTML("beforeend", "<p class='nota'>Non è ancora arrivata nessuna risposta.</p>");
     return;
+  }
+  if (ris.numeroRisposte < MINIMO_RISPOSTE_PER_RISULTATI) {
+    if (!eChiuso) {
+      p.insertAdjacentHTML("beforeend",
+        "<p class='nota'>I risultati si vedono a partire da " + MINIMO_RISPOSTE_PER_RISULTATI +
+        " questionari compilati, oppure quando il questionario è chiuso. Con pochissime risposte sarebbe possibile riconoscere chi le ha date, e questo contraddirebbe l'anonimato.</p>");
+      return;
+    }
+    p.insertAdjacentHTML("beforeend",
+      "<p class='nota'>Questionario chiuso con meno di " + MINIMO_RISPOSTE_PER_RISULTATI + " risposte: sono mostrate tutte. Con pochissime risposte l'anonimato è meno protetto.</p>");
   }
 
   const azioni = document.createElement("div");
+  azioni.style.cssText = "display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:8px 0;";
   const bExcel = document.createElement("button");
   bExcel.textContent = "Scarica i risultati in Excel";
   bExcel.addEventListener("click", () => scaricaRisultatiExcel(q, ris));
-  azioni.appendChild(bExcel);
+  const bStampa = document.createElement("button");
+  bStampa.textContent = "Stampa";
+  const etichettaCommenti = document.createElement("label");
+  etichettaCommenti.style.cssText = "display:inline-flex; align-items:center; gap:6px; font-size:14px;";
+  const spuntaCommenti = document.createElement("input");
+  spuntaCommenti.type = "checkbox"; spuntaCommenti.checked = true;
+  spuntaCommenti.addEventListener("change", () => { p._stampaConCommenti = spuntaCommenti.checked; });
+  if (p._stampaConCommenti === false) spuntaCommenti.checked = false;
+  etichettaCommenti.appendChild(spuntaCommenti);
+  etichettaCommenti.appendChild(document.createTextNode("Includi i commenti nella stampa"));
+  bStampa.addEventListener("click", () => stampaRisultati(q, ris, spuntaCommenti.checked));
+  azioni.appendChild(bExcel); azioni.appendChild(bStampa); azioni.appendChild(etichettaCommenti);
   p.appendChild(azioni);
 
   ris.perDomanda.forEach((r, indice) => {
@@ -756,6 +780,60 @@ function disegnaRisultati(p, q, ris) {
     blocco.innerHTML = html;
     p.appendChild(blocco);
   });
+}
+
+function stampaRisultati(q, ris, conCommenti) {
+  const finestra = window.open("", "_blank");
+  if (!finestra) { mostraMessaggio("Il browser ha bloccato la finestra di stampa. Consenti i popup per questa pagina.", "errore"); return; }
+  const periodo = (q.aperturaTimestamp ? "dal " + formattaDataOra(q.aperturaTimestamp) + " " : "") + "fino al " + formattaDataOra(q.chiusuraTimestamp);
+  let corpo = "";
+  ris.perDomanda.forEach((r, indice) => {
+    let html = "<div class='blocco'><div class='dom'>" + (indice + 1) + ". " + escapeHtml(r.domanda.testo) + "</div>";
+    if (r.domanda.tipo !== "commento") {
+      html += "<div class='media'>Media <strong>" + (r.media === null ? "n.d." : r.media.toFixed(2).replace(".", ",")) +
+        "</strong> su " + r.scalaMax + " <span class='gr'>(" + r.valori + " risposte)</span></div>";
+      const massimo = Math.max.apply(null, r.distribuzione.concat([1]));
+      r.distribuzione.forEach((conteggio, i) => {
+        const percentuale = r.valori ? Math.round((conteggio / r.valori) * 100) : 0;
+        html += "<div class='riga'><span class='e'>" + (i + 1) + "</span><span class='b'><span style='width:" + ((conteggio / massimo) * 100) + "%'></span></span><span class='n'>" + conteggio + " (" + percentuale + "%)</span></div>";
+      });
+      if (r.domanda.etichettaMin || r.domanda.etichettaMax) {
+        html += "<div class='gr'>1 = " + escapeHtml(r.domanda.etichettaMin || "") + (r.domanda.etichettaMax ? ", " + r.scalaMax + " = " + escapeHtml(r.domanda.etichettaMax) : "") + "</div>";
+      }
+    }
+    if (conCommenti && r.commenti.length) {
+      html += "<div class='tc'>" + (r.domanda.tipo === "commento" ? "Risposte" : "Commenti") + " (" + r.commenti.length + ", in ordine casuale)</div>";
+      r.commenti.forEach(c => { html += "<div class='com'>" + escapeHtml(c) + "</div>"; });
+    }
+    corpo += html + "</div>";
+  });
+  finestra.document.write(
+    "<!DOCTYPE html><html lang='it'><head><meta charset='UTF-8'><title>Risultati, " + escapeHtml(q.nome) + "</title><style>" +
+    "@page { size: A4; margin: 15mm; }" +
+    "body { font-family: 'Segoe UI', Arial, sans-serif; color:#000; font-size: 11pt; margin:0; }" +
+    "h1 { font-size: 16pt; margin: 0 0 2mm 0; color:#1d3557; }" +
+    ".testata { border-bottom: 2px solid #1d3557; padding-bottom: 3mm; margin-bottom: 5mm; font-size: 10pt; }" +
+    ".gr { color:#555; font-size: 9pt; }" +
+    ".blocco { break-inside: avoid; margin-bottom: 6mm; padding-bottom: 3mm; border-bottom: 1px solid #ccc; }" +
+    ".dom { font-weight: 700; margin-bottom: 2mm; }" +
+    ".media { margin-bottom: 2mm; }" +
+    ".riga { display:flex; align-items:center; gap: 3mm; margin: 1mm 0; }" +
+    ".e { width: 7mm; text-align:right; font-weight:600; }" +
+    ".b { flex:1; height: 4mm; border: 1px solid #000; display:block; }" +
+    ".b span { display:block; height:100%; background:#000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }" +
+    ".n { width: 24mm; font-size: 9.5pt; }" +
+    ".tc { font-weight:700; margin: 3mm 0 1mm 0; font-size: 10pt; }" +
+    ".com { border-left: 2px solid #777; padding: 0.5mm 0 0.5mm 3mm; margin: 1.5mm 0; font-size: 10pt; break-inside: avoid; white-space: pre-wrap; }" +
+    "@media screen { body { padding: 10mm; max-width: 190mm; margin: 0 auto; } .nota-schermo { background:#fff4d6; padding:8px 12px; margin-bottom:10px; border-radius:6px; font-size:13px; } }" +
+    "@media print { .nota-schermo { display:none; } }" +
+    "</style></head><body>" +
+    "<div class='nota-schermo'>Premi Ctrl+P per stampare, oppure scegli \"Salva come PDF\" come stampante. Dopo la stampa puoi chiudere questa scheda.</div>" +
+    "<div class='testata'><h1>" + escapeHtml(q.nome) + "</h1>" +
+    "Questionario di gradimento anonimo, " + escapeHtml(periodo) + ".<br>" +
+    "Compilati: <strong>" + ris.numeroRisposte + "</strong> su " + q.codiciEmessi + " codici emessi. " +
+    "<span class='gr'>Stampato il " + escapeHtml(formattaDataOra(Date.now())) + ". Risposte anonime, senza nomi né orari.</span></div>" +
+    corpo + "</body></html>");
+  finestra.document.close();
 }
 
 function scaricaRisultatiExcel(q, ris) {
