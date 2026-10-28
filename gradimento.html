@@ -113,7 +113,7 @@
 <body>
 
 <div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">GRADIMENTO V3 REV. 1</div>
+<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">GRADIMENTO V3 REV. 2</div>
 
 <div id="messaggio-globale"></div>
 
@@ -630,7 +630,18 @@ function mescola(array) {
   return copia;
 }
 
-async function calcolaRisultati(q) {
+// Mantiene l'ordine già mostrato e accoda i commenti nuovi, mescolati tra loro.
+function ordinaStabile(commenti, precedente) {
+  const rimanenti = commenti.slice();
+  const risultato = [];
+  (precedente || []).forEach(c => {
+    const posizione = rimanenti.indexOf(c);
+    if (posizione >= 0) { risultato.push(c); rimanenti.splice(posizione, 1); }
+  });
+  return risultato.concat(mescola(rimanenti));
+}
+
+async function calcolaRisultati(q, ordineCommenti) {
   const istantanea = await getDocs(riferimentoRisposte(q.id));
   const tutte = [];
   istantanea.forEach(d => tutte.push(d.data().risposte || []));
@@ -647,7 +658,9 @@ async function calcolaRisultati(q) {
     const distribuzione = [];
     for (let n = 1; n <= scalaMax; n++) distribuzione.push(valori.filter(v => v === n).length);
     const media = valori.length ? valori.reduce((a, b) => a + b, 0) / valori.length : null;
-    return { domanda, valori: valori.length, media, distribuzione, scalaMax, commenti: mescola(commenti) };
+    const ordinati = ordinaStabile(commenti, ordineCommenti ? ordineCommenti[domanda.id] : null);
+    if (ordineCommenti) ordineCommenti[domanda.id] = ordinati;
+    return { domanda, valori: valori.length, media, distribuzione, scalaMax, commenti: ordinati };
   });
   return { numeroRisposte: tutte.length, perDomanda };
 }
@@ -657,19 +670,54 @@ async function pannelloRisultati(id) {
   if (!q) return;
   const p = nuovoPannello("Risultati, " + q.nome);
   p.insertAdjacentHTML("beforeend", "<p class='nota'>Caricamento...</p>");
+  // L'ordine dei commenti resta lo stesso finché il pannello è aperto.
+  const ordineCommenti = {};
   let ris;
-  try { ris = await calcolaRisultati(q); } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); return; }
+  try { ris = await calcolaRisultati(q, ordineCommenti); } catch (e) { mostraMessaggio("Errore: " + e.message, "errore"); return; }
+  disegnaRisultati(p, q, ris);
 
+  let inCorso = false;
+  async function aggiorna() {
+    if (inCorso || !p.isConnected) return;
+    inCorso = true;
+    try {
+      const qAttuale = trovaQuestionario(id) || q;
+      const nuovi = await calcolaRisultati(qAttuale, ordineCommenti);
+      if (!p.isConnected) return;
+      const posizione = window.scrollY;
+      disegnaRisultati(p, qAttuale, nuovi);
+      window.scrollTo(0, posizione);
+    } catch (e) { /* un aggiornamento mancato non è un problema */ }
+    finally { inCorso = false; }
+  }
+  p._aggiorna = aggiorna;
+  const timer = setInterval(() => {
+    if (!p.isConnected) { clearInterval(timer); return; }
+    aggiorna();
+  }, 30000);
+}
+
+function disegnaRisultati(p, q, ris) {
   p.innerHTML = "";
   const titolo = document.createElement("div");
-  titolo.style.cssText = "display:flex; justify-content:space-between; align-items:center;";
+  titolo.style.cssText = "display:flex; justify-content:space-between; align-items:center; gap:8px;";
   titolo.innerHTML = "<h2 style='margin:0;'>Risultati, " + escapeHtml(q.nome) + "</h2>";
+  const gruppoBottoni = document.createElement("div");
+  const bAggiorna = document.createElement("button");
+  bAggiorna.className = "secondario"; bAggiorna.textContent = "Aggiorna";
+  bAggiorna.addEventListener("click", async () => {
+    bAggiorna.disabled = true; bAggiorna.textContent = "Aggiorno...";
+    if (p._aggiorna) await p._aggiorna();
+    if (bAggiorna.isConnected) { bAggiorna.disabled = false; bAggiorna.textContent = "Aggiorna"; }
+  });
   const chiudi = document.createElement("button");
   chiudi.className = "secondario"; chiudi.textContent = "Chiudi"; chiudi.addEventListener("click", chiudiDettaglio);
-  titolo.appendChild(chiudi);
+  gruppoBottoni.appendChild(bAggiorna); gruppoBottoni.appendChild(chiudi);
+  titolo.appendChild(gruppoBottoni);
   p.appendChild(titolo);
 
-  p.insertAdjacentHTML("beforeend", "<p><strong>" + ris.numeroRisposte + "</strong> questionari compilati su " + q.codiciEmessi + " codici emessi.</p>");
+  p.insertAdjacentHTML("beforeend", "<p><strong>" + ris.numeroRisposte + "</strong> questionari compilati su " + q.codiciEmessi + " codici emessi.</p>" +
+    "<p class='nota'>Ultimo aggiornamento: " + new Date().toLocaleTimeString("it-IT") + ". Il pannello si aggiorna da solo ogni 30 secondi.</p>");
 
   if (ris.numeroRisposte < MINIMO_RISPOSTE_PER_RISULTATI) {
     p.insertAdjacentHTML("beforeend",
