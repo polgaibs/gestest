@@ -33,22 +33,26 @@
     margin: 0;
     color: #1d1d1d;
   }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { overflow-wrap: break-word; }
   header {
-    padding: 16px;
+    padding: 12px 16px;
     background: var(--blu);
     color: white;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
   }
-  header h1 { margin: 0; font-size: 1.2rem; flex: 1; text-align: center; }
-  .stemma { height: 60px; width: auto; flex-shrink: 0; }
-  .contenitore { max-width: 640px; margin: 0 auto; padding: 8px 16px 70px 16px; }
+  /* Il titolo va a capo solo tra le due parti, mai dentro "Pol.G.A.I." */
+  header h1 { margin: 0; font-size: clamp(1rem, 1.15rem, 1.4rem); line-height: 1.25; flex: 1; min-width: 0; text-align: center; }
+  header h1 span { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+  .stemma { height: 3.5rem; max-height: 60px; min-height: 40px; width: auto; flex-shrink: 0; }
+  .contenitore { max-width: 640px; margin: 0 auto; padding: 8px 12px 16px 12px; }
   .scheda {
     background: white;
     border-radius: 10px;
-    padding: 22px;
-    margin-top: 20px;
+    padding: 18px 16px;
+    margin-top: 16px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
   h2 { color: var(--blu); margin-top: 0; font-size: 1.25rem; }
@@ -56,10 +60,11 @@
   input[type="text"] {
     width: 100%;
     padding: 14px;
-    font-size: 1.3rem;
+    font-size: 1.2rem;
+    min-width: 0;
     border: 1px solid #ccc;
     border-radius: 6px;
-    letter-spacing: 3px;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     text-align: center;
     font-family: "Consolas", "Courier New", monospace;
@@ -104,13 +109,15 @@
   .numero-domanda { color: var(--blu-chiaro); font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
   .testo-domanda { font-weight: 600; font-size: 1.05rem; margin: 6px 0 12px 0; }
   .tag-obbligatoria { color: var(--rosso); font-size: 0.8rem; font-weight: 600; margin-left: 6px; }
-  .scala { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* Colonne uguali, mai a capo a metà: fino a 5 valori su una riga,
+     da 6 in su su due righe bilanciate (il numero di colonne arriva da JS). */
+  .scala { display: grid; grid-template-columns: repeat(var(--colonne, 5), minmax(0, 1fr)); gap: 6px; }
   .scala button {
-    flex: 1 1 44px;
-    min-width: 44px;
-    max-width: 80px;
-    padding: 12px 0;
+    min-width: 0;
+    min-height: 2.75rem;
+    padding: 0.6rem 0;
     font-size: 1.05rem;
+    line-height: 1.2;
     font-weight: 600;
     background: white;
     color: var(--blu);
@@ -119,21 +126,21 @@
     cursor: pointer;
   }
   .scala button.scelto { background: var(--blu); color: white; }
-  .estremi { display: flex; justify-content: space-between; gap: 12px; color: #666; font-size: 0.85rem; margin-top: 6px; }
-  .estremi span:last-child { text-align: right; }
+  .estremi { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; color: #666; font-size: 0.85rem; margin-top: 6px; }
+  .estremi span { min-width: 0; overflow-wrap: anywhere; }
+  .estremi span:last-child { text-align: right; margin-left: auto; }
   .blocco-commento { margin-top: 12px; }
   .blocco-commento label { display: block; font-size: 0.9rem; color: #555; margin-bottom: 4px; }
+  .piede { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; max-width: 640px; margin: 0 auto; padding: 0 12px 24px 12px; font-size: 0.75rem; font-weight: 600; color: var(--blu); }
   .separatore { border: none; border-top: 1px solid #e5e5e5; margin: 22px 0 0 0; }
 </style>
 </head>
 <body>
 
-<div style="position:fixed; bottom:6px; left:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">Ufficio Informatico Scuola Pol.G.A.I.</div>
-<div style="position:fixed; bottom:6px; right:8px; font-size:11px; font-weight:600; color:#1d3557; background:#ffffff; padding:2px 6px; border-radius:4px; border:1px solid #dddddd; z-index:1000; pointer-events:none;">QUESTIONARIO V3 REV. 1</div>
 
 <header>
   <img src="stemma.png" alt="Stemma" class="stemma">
-  <h1>Scuola Pol.G.A.I. Brescia</h1>
+  <h1><span>Scuola Pol.G.A.I.</span> <span>Brescia</span></h1>
 </header>
 
 <div class="contenitore">
@@ -190,6 +197,11 @@
   </div>
 
 </div>
+
+<footer class="piede">
+  <span>Ufficio Informatico Scuola Pol.G.A.I.</span>
+  <span>QUESTIONARIO V3 REV. 2</span>
+</footer>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
@@ -369,6 +381,7 @@ function disegnaDomande(domande) {
     if (domanda.tipo === "scala") {
       const scala = document.createElement("div");
       scala.className = "scala";
+      scala.style.setProperty("--colonne", String(domanda.scalaMax <= 5 ? domanda.scalaMax : Math.ceil(domanda.scalaMax / 2)));
       for (let n = 1; n <= domanda.scalaMax; n++) {
         const bottone = document.createElement("button");
         bottone.type = "button";
