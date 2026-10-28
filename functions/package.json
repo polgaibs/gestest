@@ -2,7 +2,7 @@
   "name": "functions",
   "description": "Cloud Functions di GesTest: verifica identita/PIN, consegna domande senza risposte, calcolo punteggio lato server",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "scripts": {

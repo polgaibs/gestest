@@ -24,9 +24,10 @@
 // ============================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { setGlobalOptions } = require("firebase-functions/v2/options");
 const admin = require("firebase-admin");
-const { getFirestore } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 
 admin.initializeApp();
 const db = getFirestore();
@@ -252,8 +253,324 @@ exports.inviaRisultato = onCall(async (richiesta) => {
       numeroSessione
     };
     transazione.set(riferimento, payload);
+    // Contatori pubblici, solo numeri: servono alla locandina, che non
+    // può leggere i risultati veri (nomi, punteggi, risposte).
+    transazione.update(db.doc("test/" + attivo.id), {
+      completatiTotali: FieldValue.increment(1),
+      completatiSessione: FieldValue.increment(1)
+    });
     return payload;
   });
 
   return { punteggio: risultato.punteggio, totaleDomande: risultato.totaleDomande };
+});
+
+// ============================================================
+// CHIUDI TURNO: si attiva da sola quando "terminatoTimestamp" viene
+// scritto su un test (da admin, locandina o live, con "Termina
+// manualmente" o con la chiusura automatica quando hanno consegnato
+// tutti). Gira sul server, quindi la pulizia arriva sempre fino in
+// fondo anche se la pagina da cui è partita la chiusura viene chiusa.
+// ============================================================
+const SOGLIA_CONNESSIONE_MS_TURNO = 180000;
+const MASSIMO_TENTATIVI_ATTESA = 36; // 36 x 5s = 3 minuti di attesa massima
+
+function attendi(ms) {
+  return new Promise(risolvi => setTimeout(risolvi, ms));
+}
+
+async function contaInSvolgimento(riferimentoPresenze) {
+  const istantanea = await riferimentoPresenze.get();
+  const ora = Date.now();
+  let numero = 0;
+  istantanea.forEach(documento => {
+    const dati = documento.data();
+    const fresco = dati.ultimoAggiornamento && (ora - Number(dati.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS_TURNO;
+    if (fresco && dati.stato === "in_corso") numero++;
+  });
+  return numero;
+}
+
+exports.chiudiTurno = onDocumentUpdated({ document: "test/{idTest}", timeoutSeconds: 300 }, async (evento) => {
+  const prima = evento.data.before.data();
+  const dopo = evento.data.after.data();
+
+  // Solo nell'istante in cui "terminatoTimestamp" passa da vuoto a
+  // valorizzato, mai sugli aggiornamenti successivi.
+  if (prima.terminatoTimestamp || !dopo.terminatoTimestamp) return;
+
+  const idTest = evento.params.idTest;
+  const riferimentoTest = db.doc("test/" + idTest);
+  const riferimentoPrivato = db.doc("test/" + idTest + "/privato/dati");
+  const riferimentoPresenze = db.collection("test/" + idTest + "/presenze");
+  const riferimentoRisultati = db.collection("test/" + idTest + "/risultati");
+
+  // Aspetta chi sta ancora rispondendo, ricontrollando ogni 5 secondi,
+  // fino a un massimo di 3 minuti.
+  let tentativi = 0;
+  while (tentativi < MASSIMO_TENTATIVI_ATTESA) {
+    const numeroInSvolgimento = await contaInSvolgimento(riferimentoPresenze);
+    if (numeroInSvolgimento === 0) break;
+    await attendi(5000);
+    tentativi++;
+  }
+
+  // Fotografo la sessione appena conclusa PRIMA di cancellare le presenze.
+  const numeroSessioneAppenaConclusa = (dopo.azzeramenti || 0) + 1;
+  try {
+    const [istantaneaPresenze, istantaneaRisultati, istantaneaPrivato] = await Promise.all([
+      riferimentoPresenze.get(),
+      riferimentoRisultati.where("annullato", "==", false).get(),
+      riferimentoPrivato.get()
+    ]);
+
+    const nomiCompletati = new Set();
+    const numeroSessionePerNomeCompletato = new Map();
+    istantaneaRisultati.forEach(documento => {
+      const d = documento.data();
+      const nome = (d.nome || "").trim().toLowerCase();
+      if (nome) {
+        nomiCompletati.add(nome);
+        numeroSessionePerNomeCompletato.set(nome, typeof d.numeroSessione === "number" ? d.numeroSessione : null);
+      }
+    });
+
+    const ora = Date.now();
+    const nomiSessioneAttuale = new Set();
+    let abbandonati = 0;
+    istantaneaPresenze.forEach(documento => {
+      const d = documento.data();
+      const nomeNormalizzato = (d.nome || "").trim().toLowerCase();
+      nomiSessioneAttuale.add(nomeNormalizzato);
+      const fresco = d.ultimoAggiornamento && (ora - Number(d.ultimoAggiornamento)) <= SOGLIA_CONNESSIONE_MS_TURNO;
+      if (!fresco && !nomiCompletati.has(nomeNormalizzato)) abbandonati++;
+    });
+
+    const nomiCompletatiSessioneAttuale = new Set([...nomiCompletati].filter(n => {
+      const numeroSessioneRisultato = numeroSessionePerNomeCompletato.get(n);
+      return numeroSessioneRisultato !== null
+        ? numeroSessioneRisultato === numeroSessioneAppenaConclusa
+        : nomiSessioneAttuale.has(n);
+    }));
+
+    const privato = istantaneaPrivato.exists ? istantaneaPrivato.data() : {};
+    const numeroStudenti = (privato.studenti || []).length;
+    const numeroAssenti = (privato.assenti || []).length;
+    const copertiConnessiCompletati = new Set([...nomiSessioneAttuale, ...nomiCompletati]).size;
+    const mancantiGenerali = Math.max(numeroStudenti - copertiConnessiCompletati - numeroAssenti, 0);
+
+    if (nomiSessioneAttuale.size > 0) {
+      await db.doc("test/" + idTest + "/sessioni/" + numeroSessioneAppenaConclusa).set({
+        numeroSessione: numeroSessioneAppenaConclusa,
+        partecipanti: nomiSessioneAttuale.size,
+        completati: nomiCompletatiSessioneAttuale.size,
+        abbandoni: abbandonati,
+        mancantiGenerali,
+        timestamp: new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" })
+      });
+    }
+  } catch (erroreRiepilogo) {
+    // Un problema nel riepilogo non deve mai impedire la pulizia.
+    console.error("Errore nel calcolo del riepilogo di sessione per " + idTest, erroreRiepilogo);
+  }
+
+  // Pulizia: presenze rimaste e azzeramento del test per la prossima
+  // sessione, compreso il contatore pubblico dei completati di sessione.
+  const istantaneaDaCancellare = await riferimentoPresenze.get();
+  const batch = db.batch();
+  istantaneaDaCancellare.forEach(documento => batch.delete(documento.ref));
+  batch.update(riferimentoTest, {
+    avviatoTimestamp: null,
+    pausaTimestamp: null,
+    terminatoTimestamp: null,
+    totalePausaMs: 0,
+    secondiRimastiAllaPausa: null,
+    completatiSessione: 0,
+    azzeramenti: FieldValue.increment(1)
+  });
+  await batch.commit();
+});
+
+// ============================================================
+// QUESTIONARI DI GRADIMENTO ANONIMI
+//
+// Un questionario è un documento "test/{id}" con tipo "gradimento".
+// Non passa mai dal puntatore del test attivo, quindi può restare
+// aperto più giorni mentre i quiz normali si svolgono come sempre.
+//
+// Come si garantisce l'anonimato:
+//  - L'allievo entra con un CODICE MONOUSO, generato a caso e
+//    distribuito senza associarlo a un nome (bigliettini da una pila
+//    mescolata). Il sistema non conosce l'elenco degli allievi per
+//    questi questionari.
+//  - Il codice viene "bruciato" solo all'invio finale. Se l'allievo
+//    chiude la pagina a metà, il codice resta valido.
+//  - La risposta viene salvata in "risposteAnonime" senza codice, senza
+//    nome, senza orario e senza alcun riferimento all'allievo.
+//
+// Due funzioni:
+//   - iniziaGradimento : verifica codice e finestra di apertura, poi
+//                        restituisce le domande
+//   - inviaGradimento  : verifica di nuovo tutto sul server (obbligatorie,
+//                        limiti della scala, lunghezza dei commenti),
+//                        brucia il codice e salva la risposta, in un'unica
+//                        operazione atomica
+// ============================================================
+
+const LUNGHEZZA_MASSIMA_COMMENTO = 2000;
+const NUMERO_MASSIMO_DOMANDE_GRADIMENTO = 100;
+// Tolleranza dopo la chiusura per chi aveva già iniziato a compilare.
+const TOLLERANZA_INVIO_DOPO_CHIUSURA_MS = 5 * 60 * 1000;
+
+function normalizzaCodice(codice) {
+  return (codice || "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function formattaDataOraItaliana(millisecondi) {
+  return new Date(millisecondi).toLocaleString("it-IT", {
+    timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit"
+  });
+}
+
+async function leggiQuestionario(idTest) {
+  if (typeof idTest !== "string" || !idTest || idTest.length > 40 || idTest.includes("/")) {
+    throw new HttpsError("invalid-argument", "Questionario non valido.");
+  }
+  const [istantaneaPubblica, istantaneaPrivata] = await Promise.all([
+    db.doc("test/" + idTest).get(),
+    db.doc("test/" + idTest + "/privato/dati").get()
+  ]);
+  if (!istantaneaPubblica.exists || istantaneaPubblica.data().tipo !== "gradimento" || !istantaneaPrivata.exists) {
+    throw new HttpsError("not-found", "Questionario non trovato.");
+  }
+  return {
+    pubblico: istantaneaPubblica.data(),
+    domande: Array.isArray(istantaneaPrivata.data().domande) ? istantaneaPrivata.data().domande : []
+  };
+}
+
+function controllaFinestra(pubblico, tolleranzaMs) {
+  const ora = Date.now();
+  if (pubblico.aperturaTimestamp && ora < Number(pubblico.aperturaTimestamp)) {
+    throw new HttpsError("failed-precondition",
+      "Il questionario non è ancora aperto. Apre il " + formattaDataOraItaliana(Number(pubblico.aperturaTimestamp)) + ".");
+  }
+  if (pubblico.chiusuraTimestamp && ora > Number(pubblico.chiusuraTimestamp) + (tolleranzaMs || 0)) {
+    throw new HttpsError("failed-precondition",
+      "Il questionario è chiuso dal " + formattaDataOraItaliana(Number(pubblico.chiusuraTimestamp)) + ".");
+  }
+}
+
+exports.iniziaGradimento = onCall(async (richiesta) => {
+  const dati = richiesta.data || {};
+  const idTest = (dati.idTest || "").toString();
+  const codice = normalizzaCodice(dati.codice);
+
+  const { pubblico, domande } = await leggiQuestionario(idTest);
+  controllaFinestra(pubblico, 0);
+
+  if (codice.length < 4) {
+    throw new HttpsError("invalid-argument", "Inserisci il codice che ti è stato consegnato.");
+  }
+  const istantaneaCodice = await db.doc("test/" + idTest + "/codici/" + codice).get();
+  if (!istantaneaCodice.exists) {
+    throw new HttpsError("not-found", "Codice non riconosciuto. Controlla di averlo scritto correttamente.");
+  }
+  if (istantaneaCodice.data().usato) {
+    throw new HttpsError("already-exists", "Questo codice è già stato utilizzato.");
+  }
+
+  // Restituisco solo i campi che servono a compilare.
+  return {
+    nome: pubblico.nome || "",
+    chiusuraTimestamp: pubblico.chiusuraTimestamp || null,
+    domande: domande.map(d => ({
+      id: d.id,
+      testo: d.testo || "",
+      tipo: d.tipo === "commento" ? "commento" : "scala",
+      scalaMax: d.tipo === "commento" ? null : Number(d.scalaMax) || 5,
+      etichettaMin: d.etichettaMin || "",
+      etichettaMax: d.etichettaMax || "",
+      obbligatoria: !!d.obbligatoria,
+      commento: d.tipo === "commento" ? "no" : (["facoltativo", "obbligatorio"].includes(d.commento) ? d.commento : "no")
+    }))
+  };
+});
+
+exports.inviaGradimento = onCall(async (richiesta) => {
+  const dati = richiesta.data || {};
+  const idTest = (dati.idTest || "").toString();
+  const codice = normalizzaCodice(dati.codice);
+  const risposteInviate = Array.isArray(dati.risposte) ? dati.risposte : [];
+
+  const { pubblico, domande } = await leggiQuestionario(idTest);
+  controllaFinestra(pubblico, TOLLERANZA_INVIO_DOPO_CHIUSURA_MS);
+
+  if (domande.length > NUMERO_MASSIMO_DOMANDE_GRADIMENTO || risposteInviate.length > NUMERO_MASSIMO_DOMANDE_GRADIMENTO) {
+    throw new HttpsError("invalid-argument", "Dati non validi.");
+  }
+
+  const rispostePerId = new Map();
+  risposteInviate.forEach(r => {
+    if (r && typeof r.id === "string") rispostePerId.set(r.id, r);
+  });
+
+  // Controllo completo delle regole, sempre lato server: chi altera la
+  // pagina non può saltare una domanda obbligatoria né fuori scala.
+  const risposteSalvate = [];
+  for (const domanda of domande) {
+    const inviata = rispostePerId.get(domanda.id) || {};
+    const eSoloCommento = domanda.tipo === "commento";
+    const modalitaCommento = eSoloCommento ? "facoltativo" : (["facoltativo", "obbligatorio"].includes(domanda.commento) ? domanda.commento : "no");
+
+    let valore = null;
+    if (!eSoloCommento) {
+      const scalaMax = Number(domanda.scalaMax) || 5;
+      if (inviata.valore !== null && inviata.valore !== undefined) {
+        if (!Number.isInteger(inviata.valore) || inviata.valore < 1 || inviata.valore > scalaMax) {
+          throw new HttpsError("invalid-argument", "Risposta fuori scala.");
+        }
+        valore = inviata.valore;
+      }
+      if (domanda.obbligatoria && valore === null) {
+        throw new HttpsError("failed-precondition", "Rispondi a tutte le domande obbligatorie: \"" + (domanda.testo || "") + "\".");
+      }
+    }
+
+    let commento = "";
+    if (modalitaCommento !== "no" && typeof inviata.commento === "string") {
+      commento = inviata.commento.trim().slice(0, LUNGHEZZA_MASSIMA_COMMENTO);
+    }
+    if (eSoloCommento && domanda.obbligatoria && !commento) {
+      throw new HttpsError("failed-precondition", "Scrivi una risposta alla domanda: \"" + (domanda.testo || "") + "\".");
+    }
+    if (!eSoloCommento && modalitaCommento === "obbligatorio" && !commento) {
+      throw new HttpsError("failed-precondition", "Il commento è obbligatorio per la domanda: \"" + (domanda.testo || "") + "\".");
+    }
+
+    risposteSalvate.push({ id: domanda.id, valore, commento });
+  }
+
+  const riferimentoCodice = db.doc("test/" + idTest + "/codici/" + codice);
+  if (codice.length < 4) {
+    throw new HttpsError("invalid-argument", "Codice non valido.");
+  }
+
+  await db.runTransaction(async (transazione) => {
+    const istantaneaCodice = await transazione.get(riferimentoCodice);
+    if (!istantaneaCodice.exists) {
+      throw new HttpsError("not-found", "Codice non riconosciuto.");
+    }
+    if (istantaneaCodice.data().usato) {
+      throw new HttpsError("already-exists", "Questo codice è già stato utilizzato.");
+    }
+    // Il codice viene bruciato e la risposta salvata nella stessa
+    // operazione. La risposta non contiene nessun riferimento al codice.
+    transazione.update(riferimentoCodice, { usato: true });
+    transazione.set(db.collection("test/" + idTest + "/risposteAnonime").doc(), { risposte: risposteSalvate });
+    transazione.update(db.doc("test/" + idTest), { compilati: FieldValue.increment(1) });
+  });
+
+  return { ok: true };
 });
